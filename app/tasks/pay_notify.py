@@ -1,0 +1,31 @@
+from aiogram import Bot
+from config import ADMIN_CHANNEL_ID
+
+async def notify_purchase(
+    bot: Bot,
+    tg_id: int,
+    username: str,
+    tariff_code: str,
+    amount: int,
+    discount: int | None,
+    is_extension: bool,
+    expire_at: str
+):
+    """Отправка уведомления о новой покупке/продлении в канал админов"""
+
+    discount_text = f" (со скидкой -{discount}%)" if discount else ""
+    type_text = "Продление" if is_extension else "Новая подписка"
+
+    text = (
+        f"-=+=- 🛒 <b>Новая покупка</b> -=+=-\n\n"
+        f"<blockquote>👤 <b>@{username}</b> (ID: <code>{tg_id}</code>)\n"
+        f"💎 Тариф: <b>{tariff_code}</b>\n"
+        f"💰 Сумма: <b>{amount}₽</b>{discount_text}\n"
+        f"🔁 Тип: <b>{type_text}</b>\n\n"
+        f"📅 До: <b>{expire_at}</b></blockquote>"
+    )
+
+    try:
+        await bot.send_message(ADMIN_CHANNEL_ID, text, parse_mode="HTML")
+    except Exception as e:
+        print("[NOTIFY ERROR]", e)
