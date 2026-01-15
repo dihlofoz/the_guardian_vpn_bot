@@ -19,19 +19,16 @@ class User(Base):
     active_discount_code = Column(String, nullable=True)
     active_discount_value = Column(Integer, nullable=True)
     bonus_days_balance = Column(Integer, default=0)
-    rp_days_balance = Column(Integer, default=0)   # Накопленные дни
-    rp_gb_balance = Column(Float, default=0.0)    # Накопленные GB
-    rp_days_limit = Column(Integer, default=30)   # Максимум дней в копилке
-    rp_gb_limit = Column(Float, default=45.0) 
+    rp_days_balance = Column(Integer, default=0)   # накопленные дни
+    rp_gb_balance = Column(Float, default=0.0)    # накопленные GB
+    rp_days_limit = Column(Integer, default=30)   # максимум дней
+    rp_gb_limit = Column(Float, default=45.0)
+    devices_included = Column(Integer, default=2)  # базовое количество
+    devices_extra = Column(Integer, default=0) # докупленные устройства
 
     # 🔹 Обратные связи
     trial_subscriptions = relationship(
         "TrialSubscription",
-        back_populates="user",
-        cascade="all, delete-orphan"
-    )
-    paid_subscriptions = relationship(
-        "PaidSubscription",
         back_populates="user",
         cascade="all, delete-orphan"
     )
@@ -47,11 +44,13 @@ class User(Base):
         foreign_keys="[Referral.referred_id]",
         cascade="all, delete-orphan"
     )
-    special_subscriptions = relationship(
-        "SpecialSubscription",
+    subscriptions = relationship(
+        "Subscriptions",
         back_populates="user",
+        uselist=False,
         cascade="all, delete-orphan"
     )
+    
 
 class TrialSubscription(Base):
     __tablename__ = "trial_subscriptions"
@@ -93,6 +92,8 @@ class Subscriptions(Base):
     multi_start_date = Column(DateTime(timezone=True), nullable=True)
     multi_expire_date = Column(DateTime(timezone=True), nullable=True)
     multi_active = Column(Boolean, default=False)
+
+    user = relationship("User", back_populates="subscriptions")
 
 class Referral(Base):
     __tablename__ = "referrals"
