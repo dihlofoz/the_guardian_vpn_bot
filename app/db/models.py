@@ -67,43 +67,32 @@ class TrialSubscription(Base):
     )
 
 
-class PaidSubscription(Base):
-    __tablename__ = "paid_subscriptions"
+class Subscriptions(Base):
+    __tablename__ = "subscriptions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     tg_id = Column(BigInteger, ForeignKey("users.tg_id", ondelete="CASCADE"), nullable=False)
-    plan_name = Column(String, nullable=False)
-    amount = Column(Float, nullable=False)
-    currency = Column(String, default="RUB")
-    start_date = Column(DateTime(timezone=True), server_default=func.now())
-    expire_date = Column(DateTime(timezone=True), nullable=True)
-    active = Column(Boolean, default=True)
-    uuid = Column(String, nullable=True)
 
-    user = relationship(
-        "User",
-        back_populates="paid_subscriptions",
-        foreign_keys=[tg_id]
-    )
+    # --- BASE VPN ---
+    base_plan_name = Column(String, nullable=True)
+    base_amount = Column(Float, nullable=True)
+    base_start_date = Column(DateTime(timezone=True), nullable=True)
+    base_expire_date = Column(DateTime(timezone=True), nullable=True)
+    base_active = Column(Boolean, default=False)
 
-class SpecialSubscription(Base):
-    __tablename__ = "special_subscriptions"
+    # --- BYPASS / WHITELIST ---
+    bypass_plan_name = Column(String, nullable=True)
+    bypass_amount = Column(Float, nullable=True)
+    bypass_start_date = Column(DateTime(timezone=True), nullable=True)
+    bypass_expire_date = Column(DateTime(timezone=True), nullable=True)
+    bypass_active = Column(Boolean, default=False)
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    tg_id = Column(BigInteger, ForeignKey("users.tg_id", ondelete="CASCADE"), nullable=False)
-    plan_name = Column(String, nullable=False)
-    amount = Column(Float, nullable=False)
-    currency = Column(String, default="RUB")
-    start_date = Column(DateTime(timezone=True), server_default=func.now())
-    expire_date = Column(DateTime(timezone=True), nullable=True)
-    active = Column(Boolean, default=True)
-    uuid = Column(String, nullable=True)
-
-    user = relationship(
-        "User",
-        back_populates="special_subscriptions",
-        foreign_keys=[tg_id]
-    )
+    # --- MULTI ---
+    multi_plan_name = Column(String, nullable=True)
+    multi_amount = Column(Float, nullable=True)
+    multi_start_date = Column(DateTime(timezone=True), nullable=True)
+    multi_expire_date = Column(DateTime(timezone=True), nullable=True)
+    multi_active = Column(Boolean, default=False)
 
 class Referral(Base):
     __tablename__ = "referrals"
