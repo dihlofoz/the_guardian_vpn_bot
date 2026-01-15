@@ -588,3 +588,208 @@ async def should_reset_notifications():
         if not meta:
             return True
         return datetime.utcnow() - meta.last_reset_at >= timedelta(days=7)
+    
+# -------------------------------
+# Base VPN
+# -------------------------------
+async def add_or_extend_base_subscription(tg_id: int, plan_name: str, amount: float, days: int, uuid: str | None = None):
+    async with async_session_maker() as session:
+        try:
+            now = datetime.utcnow()
+            result = await session.execute(
+                select(Subscriptions).where(Subscriptions.tg_id == tg_id).limit(1)
+            )
+            sub = result.scalar_one_or_none()
+
+            if not sub:
+                # Создание новой записи
+                sub = Subscriptions(
+                    tg_id=tg_id,
+                    base_plan_name=plan_name,
+                    base_amount=amount,
+                    base_start_date=now,
+                    base_expire_date=now + timedelta(days=days),
+                    base_active=True,
+                    base_uuid=uuid
+                )
+                session.add(sub)
+            else:
+                # Есть запись → проверяем активную подписку
+                if sub.base_active and sub.base_expire_date:
+                    # Продление
+                    sub.base_expire_date += timedelta(days=days)
+                    sub.base_plan_name = plan_name
+                    sub.base_amount = amount
+                    sub.base_uuid = uuid
+                else:
+                    # Создание новой подписки для Base
+                    sub.base_plan_name = plan_name
+                    sub.base_amount = amount
+                    sub.base_start_date = now
+                    sub.base_expire_date = now + timedelta(days=days)
+                    sub.base_active = True
+                    sub.base_uuid = uuid
+
+            await session.commit()
+        except SQLAlchemyError:
+            await session.rollback()
+            raise
+
+# -------------------------------
+# Bypass / Whitelist VPN
+# -------------------------------
+async def add_or_extend_special_subscription(tg_id: int, plan_name: str, amount: float, days: int, uuid: str | None = None):
+    async with async_session_maker() as session:
+        try:
+            now = datetime.utcnow()
+            result = await session.execute(
+                select(Subscriptions).where(Subscriptions.tg_id == tg_id).limit(1)
+            )
+            sub = result.scalar_one_or_none()
+
+            if not sub:
+                sub = Subscriptions(
+                    tg_id=tg_id,
+                    bypass_plan_name=plan_name,
+                    bypass_amount=amount,
+                    bypass_start_date=now,
+                    bypass_expire_date=now + timedelta(days=days),
+                    bypass_active=True,
+                    bypass_uuid=uuid
+                )
+                session.add(sub)
+            else:
+                if sub.bypass_active and sub.bypass_expire_date:
+                    sub.bypass_expire_date += timedelta(days=days)
+                    sub.bypass_plan_name = plan_name
+                    sub.bypass_amount = amount
+                    sub.bypass_uuid = uuid
+                else:
+                    sub.bypass_plan_name = plan_name
+                    sub.bypass_amount = amount
+                    sub.bypass_start_date = now
+                    sub.bypass_expire_date = now + timedelta(days=days)
+                    sub.bypass_active = True
+                    sub.bypass_uuid = uuid
+
+            await session.commit()
+        except SQLAlchemyError:
+            await session.rollback()
+            raise
+
+# -------------------------------
+# Multi VPN
+# -------------------------------
+async def add_or_extend_multi_subscription(tg_id: int, plan_name: str, amount: float, days: int, uuid: str | None = None):
+    async with async_session_maker() as session:
+        try:
+            now = datetime.utcnow()
+            result = await session.execute(
+                select(Subscriptions).where(Subscriptions.tg_id == tg_id).limit(1)
+            )
+            sub = result.scalar_one_or_none()
+
+            if not sub:
+                sub = Subscriptions(
+                    tg_id=tg_id,
+                    multi_plan_name=plan_name,
+                    multi_amount=amount,
+                    multi_start_date=now,
+                    multi_expire_date=now + timedelta(days=days),
+                    multi_active=True,
+                    multi_uuid=uuid
+                )
+                session.add(sub)
+            else:
+                if sub.multi_active and sub.multi_expire_date:
+                    sub.multi_expire_date += timedelta(days=days)
+                    sub.multi_plan_name = plan_name
+                    sub.multi_amount = amount
+                    sub.multi_uuid = uuid
+                else:
+                    sub.multi_plan_name = plan_name
+                    sub.multi_amount = amount
+                    sub.multi_start_date = now
+                    sub.multi_expire_date = now + timedelta(days=days)
+                    sub.multi_active = True
+                    sub.multi_uuid = uuid
+
+            await session.commit()
+        except SQLAlchemyError:
+            await session.rollback()
+            raise
+
+# -------------------------------
+# Base VPN
+# -------------------------------
+async def get_active_base_subscription(tg_id: int):
+    async with async_session_maker() as session:
+        try:
+            result = await session.execute(
+                select(Subscriptions).where(Subscriptions.tg_id == tg_id).limit(1)
+            )
+            sub = result.scalar_one_or_none()
+            if not sub or not sub.base_active:
+                return None
+
+            return {
+                "plan_name": sub.base_plan_name,
+                "start_date": sub.base_start_date,
+                "expire_date": sub.base_expire_date,
+                "days": (sub.base_expire_date - sub.base_start_date).days
+                        if sub.base_start_date and sub.base_expire_date else None,
+                "uuid": sub.base_uuid
+            }
+        except SQLAlchemyError:
+            await session.rollback()
+            raise
+
+# -------------------------------
+# Bypass / Whitelist VPN
+# -------------------------------
+async def get_active_special_subscription(tg_id: int):
+    async with async_session_maker() as session:
+        try:
+            result = await session.execute(
+                select(Subscriptions).where(Subscriptions.tg_id == tg_id).limit(1)
+            )
+            sub = result.scalar_one_or_none()
+            if not sub or not sub.bypass_active:
+                return None
+
+            return {
+                "plan_name": sub.bypass_plan_name,
+                "start_date": sub.bypass_start_date,
+                "expire_date": sub.bypass_expire_date,
+                "days": (sub.bypass_expire_date - sub.bypass_start_date).days
+                        if sub.bypass_start_date and sub.bypass_expire_date else None,
+                "uuid": sub.bypass_uuid
+            }
+        except SQLAlchemyError:
+            await session.rollback()
+            raise
+
+# -------------------------------
+# Multi VPN
+# -------------------------------
+async def get_active_multi_subscription(tg_id: int):
+    async with async_session_maker() as session:
+        try:
+            result = await session.execute(
+                select(Subscriptions).where(Subscriptions.tg_id == tg_id).limit(1)
+            )
+            sub = result.scalar_one_or_none()
+            if not sub or not sub.multi_active:
+                return None
+
+            return {
+                "plan_name": sub.multi_plan_name,
+                "start_date": sub.multi_start_date,
+                "expire_date": sub.multi_expire_date,
+                "days": (sub.multi_expire_date - sub.multi_start_date).days
+                        if sub.multi_start_date and sub.multi_expire_date else None,
+                "uuid": sub.multi_uuid
+            }
+        except SQLAlchemyError:
+            await session.rollback()
+            raise

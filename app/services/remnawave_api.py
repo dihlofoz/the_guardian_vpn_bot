@@ -6,7 +6,6 @@ import httpx
 from typing import List, Dict
 from app import helpers as hp
 from app.db.dealer import async_session_maker
-from app.db.models import PaidSubscription
 from sqlalchemy import select
 
 # Константа с эндпоинтом пользователей
@@ -128,7 +127,7 @@ async def create_paid_user(tg_id: int, tariff_code: str, days: int):
         "Authorization": f"Bearer {REMNAWAVE_TOKEN}"
     }
 
-    active = await hp.get_active_paid_subscription(tg_id)
+    active = await hp.get_active_base_subscription(tg_id)
 
     async with httpx.AsyncClient(timeout=30) as client:
         if active and active.get("uuid"):
@@ -157,12 +156,11 @@ async def create_paid_user(tg_id: int, tariff_code: str, days: int):
             if response.status_code not in (200, 201, 204):
                 raise Exception(f"{response.status_code} - {response.text}")
 
-            await hp.add_paid_subscription(
+            await hp.add_or_extend_base_subscription(
                 tg_id=tg_id,
                 plan_name=tariff_code,
                 days=days,
                 amount=TARIFFS[tariff_code]["price"],
-                currency="RUB",
                 uuid=active["uuid"]
             )
 
@@ -199,12 +197,11 @@ async def create_paid_user(tg_id: int, tariff_code: str, days: int):
             res_json = response.json().get("response", {})
             uuid = res_json.get("uuid")
 
-            await hp.add_paid_subscription(
+            await hp.add_or_extend_base_subscription(
                 tg_id=tg_id,
                 plan_name=tariff_code,
                 days=days,
                 amount=TARIFFS[tariff_code]["price"],
-                currency="RUB",
                 uuid=uuid
             )
 
@@ -285,12 +282,11 @@ async def create_special_paid_user(tg_id: int, tariff_code: str, days: int):
                 raise Exception(f"{response.status_code} - {response.text}")
 
             # Обновляем запись в БД
-            await hp.add_special_subscription(
+            await hp.add_or_extend_special_subscription(
                 tg_id=tg_id,
                 plan_name=tariff_code,
                 days=days,
                 amount=TARIFFS[tariff_code]["price"],
-                currency="RUB",
                 uuid=active["uuid"]
             )
 
@@ -329,12 +325,11 @@ async def create_special_paid_user(tg_id: int, tariff_code: str, days: int):
             res_json = response.json().get("response", {})
             uuid = res_json.get("uuid")
 
-            await hp.add_special_subscription(
+            await hp.add_or_extend_special_subscription(
                 tg_id=tg_id,
                 plan_name=tariff_code,
                 days=days,
                 amount=TARIFFS[tariff_code]["price"],
-                currency="RUB",
                 uuid=uuid
             )
 

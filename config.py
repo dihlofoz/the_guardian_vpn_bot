@@ -49,6 +49,16 @@ TARIFFS = {
         "days": 30,
         "price": 215,
         "traffic": "100GB"
+    },
+    "1 месяц (225 GB)": {
+        "days": 30,
+        "price": 219,
+        "traffic": "225GB"
+    },
+    "3 месяца (675 GB)": {
+        "days": 91,
+        "price": 639,
+        "traffic": "675GB"
     }
 }
 
@@ -62,6 +72,11 @@ SPECIAL_TRAFFIC_LIMITS = {
     "30 дней (100 GB)": 100 * 1024**3
 }
 
+MULTI_TRAFFIC_LIMITS = {
+    "1 месяц (225 GB)": 225 * 1024**3,
+    "3 месяца (675 GB)": 675 * 1024**3,
+}
+
 # Юkassa
 ACCOUNT_ID='1189888'
 SECRET_KEY='test_2MphmmsqWsXlh7LmAOFNre32HNr6pov9V8ZenYkB-L0'
@@ -73,6 +88,7 @@ REMNAWAVE_TOKEN='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1dWlkIjoiODM1YmM4OGMtMT
 SQUAD_ID = '628f6873-1aae-4ce0-818b-8b2e2d96c308'
 SECOND_SQUAD_ID = '81b30140-0d94-4a1c-b6b4-6a88b4e2fa4c'
 SQUAD_ID_TRIAL = 'bfe69553-510e-4441-b4e4-ba9d5405f632'
+DEFAULT_DEVICES = 1
 
 # База данных PostgreSQL
 DATABASE_URL = "postgresql+asyncpg://vpn_user:Local4ti!@localhost:5432/vpn_bot_db"

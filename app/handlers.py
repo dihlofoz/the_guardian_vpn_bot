@@ -1273,10 +1273,12 @@ async def check_yookassa_payment(callback: CallbackQuery):
     _, _, payment_id = callback.data.split(":")
     tg_id = callback.from_user.id
 
+    # Проверка оплаты через YooKassa
     paid = yoo.check_payment(payment_id)
     if not paid:
         return await callback.answer("⏳ Платёж ещё не подтверждён.")
 
+    # Достаём данные инвойса
     invoice_data = ACTIVE_INVOICES.pop(tg_id, None)
     tariff_code = invoice_data["tariff_code"] if invoice_data else None
     tariff = TARIFFS.get(tariff_code) if tariff_code else None
@@ -1290,23 +1292,42 @@ async def check_yookassa_payment(callback: CallbackQuery):
     start_str = start_date.strftime("%Y-%m-%d %H:%M")
     end_str = end_date.strftime("%Y-%m-%d %H:%M")
 
-    # Создание или продление пользователя
+    # ----------------------------
+    # Создание или продление подписки
+    # ----------------------------
     if tariff_code in SPECIAL_TARIFFS:
+        # Специальный тариф (Bypass/Whitelist)
         user_data = await rm.create_special_paid_user(tg_id, tariff_code, tariff["days"])
-    else:
-        user_data = await rm.create_paid_user(tg_id, tariff_code, tariff["days"])
-
-    sub_link = f"https://sub.grdguard.xyz/{user_data.get('shortUuid')}" if user_data.get('shortUuid') else "—"
-
-    # ✅ Сбрасываем скидку, если была
-    await hp.reset_user_discount(tg_id)
-
-    if tariff_code in SPECIAL_TARIFFS:
+        # После успешного ответа с панели фиксируем в БД
+        await hp.add_or_extend_special_subscription(
+            tg_id=tg_id,
+            plan_name=tariff_code,
+            amount=tariff["price"],
+            days=tariff["days"],
+            uuid=user_data["uuid"]
+        )
         photo_path = "./assets/success2_knight.jpg"
     else:
+        # Базовый тариф (Base VPN)
+        user_data = await rm.create_paid_user(tg_id, tariff_code, tariff["days"])
+        await hp.add_or_extend_base_subscription(
+            tg_id=tg_id,
+            plan_name=tariff_code,
+            amount=tariff["price"],
+            days=tariff["days"],
+            uuid=user_data["uuid"]
+        )
         photo_path = "./assets/success1_knight.jpg"
+
+    sub_link = f"https://sub.grdguard.xyz/{user_data.get('shortUuid')}" if user_data.get('shortUuid') else "—"
     photo = FSInputFile(photo_path)
 
+    # ✅ Сбрасываем скидку
+    await hp.reset_user_discount(tg_id)
+
+    # ----------------------------
+    # Формирование текста сообщения
+    # ----------------------------
     if user_data["status"] == "created":
         caption_text = (
             f"🎉 <b>Подписка успешно активирована!</b>\n\n"
@@ -1317,7 +1338,7 @@ async def check_yookassa_payment(callback: CallbackQuery):
             f"📦 <b>Подписка:</b> {sub_link}</blockquote>\n\n"
             f"<i>Инструкции по подключению — в разделе “Помощь💬”</i>"
         )
-    else:  # extended
+    else:  # продление
         new_end = datetime.fromisoformat(user_data["expire_at"])
         caption_text = (
             f"♻️ <b>Подписка продлена!</b>\n\n"
@@ -1327,31 +1348,22 @@ async def check_yookassa_payment(callback: CallbackQuery):
             f"<blockquote><i>“I feel the need… the need for speed!” — Top Gun ✈️</i></blockquote>"
         )
 
+    # Отправка медиа с текстом
     await callback.message.edit_media(
         media=InputMediaPhoto(media=photo, caption=caption_text, parse_mode="HTML"),
         reply_markup=kb.back_to_start
     )
 
-    # ===============================
-    # 📢 УВЕДОМЛЕНИЕ ОБ ОПЛАТЕ
-    # ===============================
-
-    # tg_id пользователя
-    tg_id = callback.from_user.id
-
-    # username (на случай если нет)
+    # ----------------------------
+    # Уведомление о платеже
+    # ----------------------------
     username = callback.from_user.username or f"user{tg_id}"
-
-    # информация для уведомления из user_data
-    expire_at_str = user_data["expire_at"]
-    expire_at = datetime.fromisoformat(expire_at_str)
+    expire_at = datetime.fromisoformat(user_data["expire_at"])
     is_extension = user_data["status"] == "extended"
 
-    # Достаём amount + discount из invoice_data (где ты их сохраняешь!)
-    amount_rub = invoice_data.get("amount")     # сумма в рублях
-    discount = invoice_data.get("discount")     # None или число
+    amount_rub = invoice_data.get("amount")
+    discount = invoice_data.get("discount")
 
-    # отправка уведомления
     await pn.notify_purchase(
         bot=callback.bot,
         tg_id=tg_id,
