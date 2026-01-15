@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, insert, update, delete
 from sqlalchemy.exc import IntegrityError
-from app.db.models import User, Referral, TrialSubscription, PaidSubscription, PromoBonusDays, PromoDiscount, PromoUse, SpecialSubscription, ExpiredSubscriptionNotification, NotificationMeta
+from app.db.models import User, Referral, TrialSubscription, PromoBonusDays, PromoDiscount, PromoUse, ExpiredSubscriptionNotification, NotificationMeta, Subscriptions
 from app.db.dealer import async_session_maker
 from sqlalchemy.exc import SQLAlchemyError
 from config import CHANNEL_ID
@@ -183,238 +183,6 @@ async def activate_trial(user_tg_id: int) -> None:
         except IntegrityError:
             await session.rollback()
             raise
-
-
-# --- Проверка активной подписки ---
-async def get_active_subscription_type(tg_id: int) -> str | None:
-    """
-    Проверяет, есть ли у пользователя активная подписка.
-    Возвращает:
-    - 'trial' — если пробная активна (3 дня с момента активации не прошли)
-    - 'paid' — если активна платная подписка
-    - None — если нет подписок
-    """
-    now = datetime.utcnow()
-
-    async with async_session_maker() as session:
-        # --- Проверяем платную подписку ---
-        paid_query = await session.execute(
-            select(PaidSubscription)
-            .where(PaidSubscription.tg_id == tg_id, PaidSubscription.active == True)
-            .order_by(PaidSubscription.id.desc())
-            .limit(1)
-        )
-        paid = paid_query.scalar_one_or_none()
-
-        now = datetime.now(timezone.utc)
-
-        if paid and paid.expire_date:
-            try:
-                if paid.expire_date > now:
-                    return "paid"
-            except Exception:
-                pass
-
-        # --- Проверяем пробную подписку ---
-        user_query = await session.execute(select(User.id).where(User.tg_id == tg_id))
-        user_id = user_query.scalar_one_or_none()
-        if not user_id:
-            return None
-
-        trial_query = await session.execute(
-            select(TrialSubscription.activated_at)
-            .where(TrialSubscription.user_id == user_id)
-            .order_by(TrialSubscription.id.desc())
-            .limit(1)
-        )
-        activated_at = trial_query.scalar_one_or_none()
-
-        if activated_at:
-            end_date = activated_at + timedelta(days=3)
-            if now < end_date:
-                return "trial"
-
-        return None
-    
-
-async def add_paid_subscription(
-    tg_id: int,
-    plan_name: str,
-    amount: float = 0,
-    currency: str = "RUB",
-    days: int = 30,
-    uuid: str | None = None
-):
-    """Создаёт или продлевает платную подписку пользователя."""
-
-    async with async_session_maker() as session:
-        try:
-            now = datetime.utcnow()
-
-            result = await session.execute(
-                select(PaidSubscription)
-                .where(PaidSubscription.tg_id == tg_id, PaidSubscription.active == True)
-                .order_by(PaidSubscription.id.desc())
-                .limit(1)
-            )
-            active_sub = result.scalar_one_or_none()
-
-            if active_sub:
-                # Продление подписки
-                new_expire = (active_sub.expire_date or now) + timedelta(days=days)
-                await session.execute(
-                    update(PaidSubscription)
-                    .where(PaidSubscription.id == active_sub.id)
-                    .values(
-                        expire_date=new_expire,
-                        plan_name=plan_name,
-                        amount=amount,
-                        currency=currency,
-                    )
-                )
-            else:
-                # Создание новой подписки
-                expire_date = now + timedelta(days=days)
-                session.add(PaidSubscription(
-                    tg_id=tg_id,
-                    plan_name=plan_name,
-                    amount=amount,
-                    currency=currency,
-                    start_date=now,
-                    expire_date=expire_date,
-                    active=True,
-                    uuid=uuid,
-                ))
-
-            await session.commit()
-
-        except SQLAlchemyError:
-            await session.rollback()
-            raise
-
-async def add_special_subscription(
-    tg_id: int,
-    plan_name: str,
-    amount: float = 0,
-    currency: str = "RUB",
-    days: int = 30,
-    uuid: str | None = None
-):
-    async with async_session_maker() as session:
-        try:
-            now = datetime.utcnow()
-
-            result = await session.execute(
-                select(SpecialSubscription)
-                .where(SpecialSubscription.tg_id == tg_id, SpecialSubscription.active == True)
-                .order_by(SpecialSubscription.id.desc())
-                .limit(1)
-            )
-            active_sub = result.scalar_one_or_none()
-
-            if active_sub:
-                # Продление подписки
-                new_expire = (active_sub.expire_date or now) + timedelta(days=days)
-                await session.execute(
-                    update(SpecialSubscription)
-                    .where(SpecialSubscription.id == active_sub.id)
-                    .values(
-                        expire_date=new_expire,
-                        plan_name=plan_name,
-                        amount=amount,
-                        currency=currency,
-                    )
-                )
-
-            else:
-                # Создание новой подписки
-                expire_date = now + timedelta(days=days)
-                session.add(SpecialSubscription(
-                    tg_id=tg_id,
-                    plan_name=plan_name,
-                    amount=amount,
-                    currency=currency,
-                    start_date=now,
-                    expire_date=expire_date,
-                    active=True,
-                    uuid=uuid
-                ))
-
-            await session.commit()
-
-        except SQLAlchemyError:
-            await session.rollback()
-            raise
-
-async def get_active_paid_subscription(tg_id: int):
-    """Возвращает активную платную подписку пользователя (или None)."""
-    async with async_session_maker() as session:
-        result = await session.execute(
-            select(PaidSubscription)
-            .where(PaidSubscription.tg_id == tg_id, PaidSubscription.active == True)
-            .limit(1)
-        )
-        sub = result.scalar_one_or_none()
-
-        if sub:
-            return {
-                "uuid": sub.uuid,
-                "expire_date": sub.expire_date,
-                "plan_name": sub.plan_name,
-                "days": (sub.expire_date - sub.start_date).days if sub.start_date and sub.expire_date else None
-            }
-        return None
-    
-async def get_active_special_subscription(tg_id: int):
-    async with async_session_maker() as session:
-        result = await session.execute(
-            select(SpecialSubscription)
-            .where(SpecialSubscription.tg_id == tg_id, SpecialSubscription.active == True)
-            .limit(1)
-        )
-        sub = result.scalar_one_or_none()
-
-        if sub:
-            return {
-                "uuid": sub.uuid,
-                "expire_date": sub.expire_date,
-                "plan_name": sub.plan_name,
-                "days": (
-                    (sub.expire_date - sub.start_date).days
-                    if sub.start_date and sub.expire_date
-                    else None
-                )
-            }
-
-        return None
-
-# Возвращает UUID подписки, дату окончания, и бонусные дни
-async def get_user_subscription_and_bonus(tg_id: int):
-    async with async_session_maker() as session:
-        # Получаем пользователя
-        result = await session.execute(select(User).where(User.tg_id == tg_id))
-        user = result.scalar_one_or_none()
-        if not user:
-            return None
-
-        # Получаем активную платную подписку
-        result = await session.execute(
-            select(PaidSubscription.uuid, PaidSubscription.expire_date)
-            .where(PaidSubscription.tg_id == tg_id, PaidSubscription.active == True)
-            .order_by(PaidSubscription.id.desc())
-            .limit(1)
-        )
-        sub = result.first()
-        if not sub:
-            return None
-
-        uuid, expire_date = sub
-
-        return {
-            "uuid": uuid,
-            "expire_date": expire_date,
-            "bonus_days": user.bonus_days_balance or 0
-        }
     
 # Обнуление бонусных дней полсе обновления подписки
 async def reset_referral_bonuses(user_id: int):
@@ -425,54 +193,11 @@ async def reset_referral_bonuses(user_id: int):
         if user:
             user.bonus_days_balance = 0
             await session.commit()
-
-
-async def get_latest_plan_name(tg_id: int) -> str | None:
-    async with async_session_maker() as session:
-        query = await session.execute(
-            select(PaidSubscription.plan_name)
-            .where(PaidSubscription.tg_id == tg_id, PaidSubscription.active == True)
-            .order_by(PaidSubscription.id.desc())
-            .limit(1)
-        )
-        result = query.scalar_one_or_none()
-        return result
-    
-async def get_latest_special_plan_name(tg_id: int) -> str | None:
-    async with async_session_maker() as session:
-        query = await session.execute(
-            select(SpecialSubscription.plan_name)
-            .where(SpecialSubscription.tg_id == tg_id, SpecialSubscription.active == True)
-            .order_by(SpecialSubscription.id.desc())
-            .limit(1)
-        )
-        return query.scalar_one_or_none()
     
 async def get_all_users():
     async with async_session_maker() as session:
         result = await session.execute(select(User.tg_id))
-        return [row[0] for row in result.all()]
-    
-# Удаление записи о платной подписке из базы
-async def remove_paid_subscription_by_uuid(uuid: str):
-    async with async_session_maker() as session:
-        result = await session.execute(
-            delete(PaidSubscription).where(PaidSubscription.uuid == uuid)
-        )
-        await session.commit()
-
-        return result.rowcount > 0 
-    
-# Удаление записи о специальной подписке из базы
-async def remove_special_subscription_by_uuid(uuid: str):
-    async with async_session_maker() as session:
-        result = await session.execute(
-            delete(SpecialSubscription).where(SpecialSubscription.uuid == uuid)
-        )
-        await session.commit()
-
-        return result.rowcount > 0
-    
+        return [row[0] for row in result.all()]   
 
 # Создание промокода-скидки
 async def create_discount_promo(promo_code: str, percent: int, max_uses: int):
@@ -636,7 +361,6 @@ async def reset_user_discount(tg_id: int):
         await session.commit()
         return True
 
-
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
@@ -730,63 +454,6 @@ async def get_rp_gb_balance(tg_id: int) -> int:
         result = await session.execute(select(User.rp_gb_balance).where(User.tg_id == tg_id))
         user = result.scalar_one_or_none()
         return user or 0
-
-# Проверка активной платной подписки + наличия RP-дней
-async def check_paid_subscription_and_days(tg_id: int):
-    async with async_session_maker() as session:
-        # Получаем пользователя и баланс дней
-        user_res = await session.execute(select(User).where(User.tg_id == tg_id))
-        user = user_res.scalar_one_or_none()
-
-        if not user or (user.rp_days_balance or 0) <= 0:
-            return None
-
-        # Ищем последнюю активную ПЛАТНУЮ подписку
-        sub_res = await session.execute(
-            select(PaidSubscription.uuid, PaidSubscription.expire_date)
-            .where(PaidSubscription.tg_id == tg_id, PaidSubscription.active == True)
-            .order_by(PaidSubscription.id.desc())
-            .limit(1)
-        )
-        sub = sub_res.first()
-        if not sub:
-            return None
-
-        uuid, expire_date = sub
-
-        return {
-            "uuid": uuid,
-            "expire_date": expire_date,
-            "balance": user.rp_days_balance
-        }
-
-# Проверка баланса + действующей подписки Обход Whitelists
-async def check_special_subscription_and_gb(tg_id: int):
-    async with async_session_maker() as session:
-        # Пользователь
-        user_res = await session.execute(select(User).where(User.tg_id == tg_id))
-        user = user_res.scalar_one_or_none()
-
-        if not user or (user.rp_gb_balance or 0) <= 0:
-            return None
-
-        # Активная спец-подписка
-        sub_res = await session.execute(
-            select(SpecialSubscription.uuid)
-            .where(SpecialSubscription.tg_id == tg_id, SpecialSubscription.active == True)
-            .order_by(SpecialSubscription.id.desc())
-            .limit(1)
-        )
-        sub = sub_res.first()
-        if not sub:
-            return None
-
-        uuid = sub[0]
-
-        return {
-            "uuid": uuid,
-            "balance": user.rp_gb_balance
-        }
 
 async def update_special_subscription_after_gb_apply(tg_id: int, used_gb: float):
     async with async_session_maker() as session:
