@@ -18,7 +18,7 @@ import app.helpers as hp
 from app.services import cryptobot_api as cb
 from app.services import yookassa_api as yoo
 from app.services import remnawave_api as rm
-from config import BOT_USERNAME, TARIFFS, ADMIN_IDS
+from config import BOT_USERNAME, TARIFFS, ADMIN_IDS, DEFAULT_DEVICES, DEVICES_MAX, DEVICES_MIN, DEVICES_STEP
 from app.states import CreatePromo, PromoActivate, ConvertRPStates
 from app.tasks import pay_notify as pn
 
@@ -27,6 +27,7 @@ router = Router()
 
 ACTIVE_INVOICES = {}
 TEMP_MAILING = {}
+user_device_choice = {}
 
 SPECIAL_TARIFFS = {
     "7 дней (25 GB)",
@@ -272,7 +273,7 @@ async def update_sub(callback: CallbackQuery):
 # Кнопка подключения к VPN
 @router.callback_query(F.data == 'connectvpn')
 async def connectvpn(callback: CallbackQuery):
-    await callback.answer('Вы выбрали Подключение к VPN')
+    await callback.answer('Подключение к VPN')
 
     photo_path = "./assets/vpn_knight.jpg"
     photo = FSInputFile(photo_path)
@@ -281,10 +282,11 @@ async def connectvpn(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
         caption=(
-            f"🔥 <b>Добро пожаловать в VPN меню!</b>\n\n"
+            f"🏰 <b> Добро пожаловать в Чертоги Стабильного Соединения</b>\n\n"
+            f"✠ Здесь рыцари шёпотом обмениваются тайными путями, недоступные чужим глазам...\n\n"
             f"<i>Выберите нужное действие ниже</i> 👇"
-            ),
-            parse_mode="HTML"
+        ),
+        parse_mode="HTML"
         ),
     reply_markup=kb.vpn
     )
@@ -302,8 +304,8 @@ async def help(callback: CallbackQuery):
             media=photo,
             caption=(
                 "🤝 <b>Привет! Необходима помощь?</b>\n\n"
-                "🛠️ <b>Здесь можно найти инструкцию по настройке VPN, смотри ниже.</b>\n\n"
-                "🛟 <b>Если возникла проблема или вопрос, то напиши в поддержку, поможем разобраться!</b>"
+                "🛠️ Здесь можно найти инструкцию по настройке VPN, смотри ниже.\n\n"
+                "🛟 <i>Если возникла проблема или вопрос, то напиши в поддержку, поможем разобраться!</i>"
             ),
             parse_mode="HTML"
         ),
@@ -555,7 +557,11 @@ async def try_key(callback: CallbackQuery):
 async def back_main(callback: CallbackQuery):
     await callback.answer('')
 
-    username = callback.from_user.username or "—"
+    tg_id = callback.from_user.id
+    ACTIVE_INVOICES.pop(tg_id, None)
+
+    firstname = callback.from_user.first_name or ""
+    lastname = callback.from_user.last_name or ""
 
     photo_path = "./assets/continue_knight.jpg"
     photo = FSInputFile(photo_path)
@@ -564,9 +570,9 @@ async def back_main(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                f"🛡 <b>Ого, {username}, ты снова здесь?</b>\n\n"
-                f"👀 <b>Надеюсь тебе тут нравится, тут много всего :)</b>\n\n"
-                f"<i>Выбери интересующий тебя вариант👇</i>"
+                f"🛡 <b>Вы вернулись в начало!</b>\n\n"
+                f"Надеюсь вам тут нравится <b>{firstname} {lastname}</b>, я старался 👀\n\n"
+                f"<i>Продолжим? Выбери интересующий тебя вариант 👇</i>"
             ),
             parse_mode="HTML"
         ),
@@ -634,8 +640,8 @@ async def back_main(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "🛡️ <b>С возвращение герой!</b>\n\n"
-                "⚔️ <b>Получай доступ и захватывай новые вершины!</b>\n\n"
+                "🛡️ <b>С возвращение, герой! Вот ты и снова в начале.</b>\n\n"
+                "⚔️ Получай доступ и захватывай новые вершины!\n\n"
                 "<i>Выбери интересующий тебя вариант 👇</i>"
             ),
             parse_mode="HTML"
@@ -655,8 +661,9 @@ async def back_main(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "🔥 <b>Добро пожаловать в VPN меню!</b>\n\n"
-                "<i>Выберите нужное действие ниже 👇</i>"
+                f"🏰 <b> Добро пожаловать в Чертоги Стабильного Соединения</b>\n\n"
+                f"✠ Здесь рыцари шёпотом обмениваются тайными путями, недоступные чужим глазам...\n\n"
+                f"<i>Выберите нужное действие ниже</i> 👇"
             ),
             parse_mode="HTML"
         ),
@@ -667,6 +674,9 @@ async def back_main(callback: CallbackQuery):
 @router.callback_query(F.data == 'back_main3')
 async def back_main(callback: CallbackQuery):
     await callback.answer('Назад')
+
+    tg_id = callback.from_user.id
+    ACTIVE_INVOICES.pop(tg_id, None)
 
     photo_path = "./assets/option_knight.jpg"
     photo = FSInputFile(photo_path)
@@ -730,6 +740,12 @@ async def back_main(callback: CallbackQuery):
 async def tarif(callback: CallbackQuery):
     await callback.answer('Базовый 🪴')
 
+    user_id = callback.from_user.id
+
+    ACTIVE_INVOICES[user_id] = {
+        "tariff_group": "basic"
+    }
+
     photo_path = "./assets/basic_knight.jpg"
     photo = FSInputFile(photo_path)
 
@@ -737,7 +753,7 @@ async def tarif(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "🛡 <b>Расширенные возможности и усиленная безопасность.</b>\n\n"
+                "🛡 <b>Раздел расширенных возможностей и усиленной безопасности</b>\n\n"
                 "<blockquote><i>В данные тарифы не входят серверы, предназначенные для обхода белых списков 🚫\n\n"
                 "Они рассчитаны на более простые задачи и также подойдут пользователям из регионов, где ещё отсутствуют полноценные блокировки</i>\n\n"
                 "🌍 <b>Сервера</b>: 🇺🇸 | 🇩🇪 | 🇳🇱 | 🇫🇮 | 🇷🇺 | 🇫🇷 | 🇵🇱 | 🇸🇪</blockquote>\n\n"
@@ -752,6 +768,12 @@ async def tarif(callback: CallbackQuery):
 async def tarif(callback: CallbackQuery):
     await callback.answer('Обход 🥷')
 
+    user_id = callback.from_user.id
+
+    ACTIVE_INVOICES[user_id] = {
+        "tariff_group": "special"
+    }
+
     photo_path = "./assets/obhod_knight.jpg"
     photo = FSInputFile(photo_path)
 
@@ -769,33 +791,15 @@ async def tarif(callback: CallbackQuery):
         reply_markup=kb.tariffs_s
     )
 
-# Кнопка назад из меню тарифа
-@router.callback_query(F.data == 'back_to_tariffs_b')
-async def back_tariffs(callback: CallbackQuery):
-    await callback.answer('Назад')
+@router.callback_query(F.data == 'tariffs_multi')
+async def tarif(callback: CallbackQuery):
+    await callback.answer('Мульти VPN 💥')
 
-    photo_path = "./assets/basic_knight.jpg"
-    photo = FSInputFile(photo_path)
+    user_id = callback.from_user.id
 
-    await callback.message.edit_media(
-        media=InputMediaPhoto(
-            media=photo,
-            caption=(
-                "↩️ <b>Вы вернулись на развилку.</b>\n\n"
-                "<blockquote><i>В данные тарифы не входят серверы, предназначенные для обхода белых списков 🚫\n\n"
-                "Они рассчитаны на более простые задачи и также подойдут пользователям из регионов, где ещё отсутствуют полноценные блокировки</i>\n\n"
-                "🌍 <b>Сервера</b>: 🇺🇸 | 🇩🇪 | 🇳🇱 | 🇫🇮 | 🇷🇺 | 🇫🇷 | 🇵🇱 | 🇸🇪</blockquote>\n\n"
-                "🛣 <i>Путь продолжается — выберите дорогу, что поведёт вас дальше…</i>\n"
-            ),
-            parse_mode="HTML"
-        ),
-        reply_markup=kb.tariffs_b
-    )
-
-# Кнопка назад из меню тарифа
-@router.callback_query(F.data == 'back_to_tariffs_s')
-async def back_tariffs(callback: CallbackQuery):
-    await callback.answer('Назад')
+    ACTIVE_INVOICES[user_id] = {
+        "tariff_group": "multi"
+    }
 
     photo_path = "./assets/obhod_knight.jpg"
     photo = FSInputFile(photo_path)
@@ -804,14 +808,14 @@ async def back_tariffs(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "🥷 <b>Раздел специальных тарифов</b>\n\n"
-                "<blockquote><i>Режимы с расширенными возможностями обхода блокировок и улучшенной стабильностью подключения</i> 📶\n\n"
-                "🌍 <b>Сервера</b>:  🇷🇺 | 🇳🇱 | 🇫🇮 | 🇩🇪 | 🇫🇷 | 🇵🇱 | 🇸🇪</blockquote>\n\n"
-                "<i>Выбери тариф — и получи более свободный доступ к нужным ресурсам 👇</i>"
+                "💥 <b>Раздел мульти-доступа</b>\n\n"
+                "<blockquote><i>Это место, где вы можете получить доступ ко всем серверам сервиса в одной подписке</i> 🛜\n\n"
+                "🌍 <b>Сервера</b>: 🇺🇸 | 🇷🇺 | 🇳🇱 | 🇫🇮 | 🇩🇪 | 🇫🇷 | 🇵🇱 | 🇸🇪</blockquote>\n\n"
+                "<i>Выбери тариф — и начни свой путь 👇</i>"
             ),
             parse_mode="HTML"
         ),
-        reply_markup=kb.tariffs_s
+        reply_markup=kb.tariffs_m
     )
 
 # Активация пробной подписки
@@ -838,211 +842,273 @@ async def connectvpn(callback: CallbackQuery):
         ),
         reply_markup=kb.sub
     )
+    
+# Выбор тарифа → сразу открываем выбор устройств
+@router.callback_query(F.data.in_(TARIFFS.keys()))
+async def handle_tariff_choice(callback: CallbackQuery):
+    tariff_code = callback.data
+    user_id = callback.from_user.id
 
-# Тариф 1 месяц
-@router.callback_query(F.data == '1 месяц')
-async def one_month(callback: CallbackQuery):
-    await callback.answer('1 месяц')
+    tariff_group = ACTIVE_INVOICES.get(user_id, {}).get("tariff_group")
 
-    photo_path = "./assets/1month_knight.jpg"
+    # Сохраняем выбор тарифа во временное хранилище
+    ACTIVE_INVOICES[user_id] = {
+        "tariff_code": tariff_code,
+        "devices": DEFAULT_DEVICES,
+        "tariff_group": tariff_group,
+        "user_id": user_id,
+        "min_value": DEVICES_MIN,
+        "max_value": DEVICES_MAX,
+        "step": DEVICES_STEP
+    }
+
+    photo_path = "./assets/obhod_knight.jpg"
     photo = FSInputFile(photo_path)
 
     await callback.message.edit_media(
         media=InputMediaPhoto(
             media=photo,
             caption=(
-              "💎 <b>Тариф: 1 месяц</b>\n"
-              "<blockquote>─────────────────────────────────\n"
-              "│ 🔖 <b>Описание:</b> Старт для начинающего интернет-воина\n"
-              "│ 🗓  <b>Кол-во Дней:</b> 30\n"
-              "│ 🌐 <b>Трафик:</b> ∞ Безлимит\n"
-              "│ 💶 <b>Стоимость:</b> 139₽\n"
-              "─────────────────────────────────</blockquote>\n\n"
-              "<i>Выберите метод оплаты</i> 👇"
+                f"⚙️ <b>Настройка тарифа: {tariff_code}</b>\n\n"
+                f"<blockquote>📱 Выберите количество устройств.\n"
+                f"➕ Цена за доп. устройство: <b>50₽ / мес</b></blockquote>\n\n"
+                f"<i>Выберите количество устройств 👇</i>"
             ),
             parse_mode="HTML"
         ),
-        reply_markup=kb.payment_methods("1 месяц")
+        reply_markup=kb.devices_selector_keyboard(
+            user_id=user_id,
+            current=DEFAULT_DEVICES,  # стартовое значение
+            min_value=DEVICES_MIN,
+            max_value=DEVICES_MAX,
+            step=DEVICES_STEP
+        )
     )
 
-# Тариф 3 месяца
-@router.callback_query(F.data == '3 месяца')
-async def one_month(callback: CallbackQuery):
-    await callback.answer('3 месяца')
+    await callback.answer('Настройка тарифа')
 
-    photo_path = "./assets/3month_knight.jpg"
-    photo = FSInputFile(photo_path)
+@router.callback_query(F.data.startswith("devices:") & F.data.contains(":set:"))
+async def devices_set(callback: CallbackQuery):
+    tg_id = callback.from_user.id
 
-    await callback.message.edit_media(
-        media=InputMediaPhoto(
-            media=photo,
-            caption=(
-              "💎 <b>Тариф: 3 месяца</b>\n"
-              "<blockquote>─────────────────────────────────\n"
-              "│ 🔖 <b>Описание:</b> Отличное сезонное решение\n"
-              "│ 🗓  <b>Кол-во Дней:</b> 90\n"
-              "│ 🌐 <b>Трафик:</b> ∞ Безлимит\n"
-              "│ 💶 <b>Стоимость:</b> 389₽\n"
-              "─────────────────────────────────</blockquote>\n\n"
-              "<i>Выберите метод оплаты</i> 👇"
-            ),
-            parse_mode="HTML"
-        ),
-        reply_markup=kb.payment_methods("3 месяца")
+    _, _, _, new_value = callback.data.split(":")
+    new_value = int(new_value)
+
+    invoice = ACTIVE_INVOICES.get(tg_id)
+    if not invoice:
+        return await callback.answer("❌ Ошибка: параметры не найдены")
+
+    min_value = invoice["min_value"]
+    max_value = invoice["max_value"]
+
+    new_value = max(min_value, min(max_value, new_value))
+    invoice["devices"] = new_value
+
+    await callback.message.edit_reply_markup(
+        reply_markup=kb.devices_selector_keyboard(
+            user_id=tg_id,
+            current=new_value,
+            min_value=min_value,
+            max_value=max_value,
+            step=invoice["step"]
+        )
     )
 
-# Тариф 6 месяцев
-@router.callback_query(F.data == '6 месяцев')
-async def one_month(callback: CallbackQuery):
-    await callback.answer('6 месяцев')
+    await callback.answer()
 
-    photo_path = "./assets/6month_knight.jpg"
+@router.callback_query(F.data.endswith(":next") & F.data.startswith("devices:"))
+async def devices_next(callback: CallbackQuery):
+    tg_id = callback.from_user.id
+
+    invoice = ACTIVE_INVOICES.get(tg_id)
+    if not invoice:
+        return await callback.answer("❌ Ошибка: данные покупки не найдены")
+
+    tariff_code = invoice["tariff_code"]
+    tariff = TARIFFS.get(tariff_code)
+
+    devices_total = invoice["devices"]
+    devices_extra = max(0, devices_total - 1)
+
+    base_price = tariff["price"]
+    days = tariff["days"]
+
+    extra_price = devices_extra * 50 * (days / 30)
+    final_price = int(base_price + extra_price)
+
+    invoice["devices_total"] = devices_total
+    invoice["devices_extra"] = devices_extra
+    invoice["base_price"] = base_price
+    invoice["extra_price"] = int(extra_price)
+    invoice["final_price"] = final_price
+    invoice["amount"] = final_price
+
+    photo_path = "./assets/obhod_knight.jpg"
     photo = FSInputFile(photo_path)
 
-    await callback.message.edit_media(
-        media=InputMediaPhoto(
-            media=photo,
-            caption=(
-              "💎 <b>Тариф: 6 месяцев</b>\n"
-              "<blockquote>─────────────────────────────────\n"
-              "│ 🔖 <b>Описание:</b> Полгода наслаждения быстрым VPN\n"
-              "│ 🗓  <b>Кол-во Дней:</b> 180\n"
-              "│ 🌐 <b>Трафик:</b> ∞ Безлимит\n"
-              "│ 💶 <b>Стоимость:</b> 749₽\n"
-              "─────────────────────────────────</blockquote>\n\n"
-              "<i>Выберите метод оплаты</i> 👇"
-            ),
-            parse_mode="HTML"
-        ),
-        reply_markup=kb.payment_methods("6 месяцев")
+    text = (
+        f"<b>⚙️ Подтверждение заказа</b>\n\n"
+        f"<blockquote>💎 Тариф: <b>{tariff_code} | В него входит:</b>\n"
+        f"─────────────────────────────\n"
+        f"🗓 Дней: <b>{days}</b>\n"
+        f"🌐 Трафик: <b>{tariff['traffic']}</b>\n"
+        f"📱 Устройства: <b>{devices_total}</b>\n"
+        f"➕ Доп: <b>{devices_extra} × 50₽ / мес</b>\n"
+        f"─────────────────────────────</blockquote>\n\n"
+        f"💰 <b>Итоговая цена: {base_price} + {extra_price} = {final_price}₽</b>\n\n"
+        "<i>Подтвердите, чтобы перейти к оплате</i> 👇"
     )
 
-# Тариф 9 месяцев
-@router.callback_query(F.data == '9 месяцев')
-async def one_month(callback: CallbackQuery):
-    await callback.answer('9 месяцев')
+    await callback.message.edit_media(
+        InputMediaPhoto(media=photo, caption=text, parse_mode="HTML"),
+        reply_markup=kb.confirm_zakaz_keyboard(tg_id)
+    )
+    await callback.answer('Подтверждение')
 
-    photo_path = "./assets/9month_knight.jpg"
-    photo = FSInputFile(photo_path)
+# Кнопка назад
+@router.callback_query(F.data == "back:tariffs")
+async def back_to_tariffs(callback: CallbackQuery):
+    tg_id = callback.from_user.id
+    invoice = ACTIVE_INVOICES.get(tg_id)
+
+    if not invoice:
+        return await callback.answer("Ошибка: данные не найдены")
+
+    group = invoice.get("tariff_group")
+
+    if group == "basic":
+        markup = kb.tariffs_b
+        photo = "./assets/basic_knight.jpg"
+        caption = (
+                "↩️ <b>Вы вернулись на развилку.</b>\n\n"
+                "<blockquote><i>В данные тарифы не входят серверы, предназначенные для обхода белых списков 🚫\n\n"
+                "Они рассчитаны на более простые задачи и также подойдут пользователям из регионов, где ещё отсутствуют полноценные блокировки</i>\n\n"
+                "🌍 <b>Сервера</b>: 🇺🇸 | 🇩🇪 | 🇳🇱 | 🇫🇮 | 🇷🇺 | 🇫🇷 | 🇵🇱 | 🇸🇪</blockquote>\n\n"
+                "🛣 <i>Путь продолжается — выберите дорогу, что поведёт вас дальше…</i>\n"
+            )
+    elif group == "special":
+        markup = kb.tariffs_s
+        photo = "./assets/obhod_knight.jpg"
+        caption = (
+                "🥷 <b>Раздел специальных тарифов</b>\n\n"
+                "<blockquote><i>Режимы с расширенными возможностями обхода блокировок и улучшенной стабильностью подключения</i> 📶\n\n"
+                "🌍 <b>Сервера</b>:  🇷🇺 | 🇳🇱 | 🇫🇮 | 🇩🇪 | 🇫🇷 | 🇵🇱 | 🇸🇪</blockquote>\n\n"
+                "<i>Выбери тариф — и получи более свободный доступ к нужным ресурсам 👇</i>"
+            )
+    elif group == "multi":
+        markup = kb.tariffs_m
+        photo = "./assets/obhod_knight.jpg"
+        caption = (
+                "💥 <b>Раздел мульти-доступа</b>\n\n"
+                "<blockquote><i>Это место, где вы можете получить доступ ко всем серверам сервиса в одной подписке</i> 🛜\n\n"
+                "🌍 <b>Сервера</b>: 🇺🇸 | 🇷🇺 | 🇳🇱 | 🇫🇮 | 🇩🇪 | 🇫🇷 | 🇵🇱 | 🇸🇪</blockquote>\n\n"
+                "<i>Выбери тариф — и начни свой путь 👇</i>"
+            )
+    else:
+        return await callback.answer("Ошибка: неизвестная группа тарифа")
 
     await callback.message.edit_media(
-        media=InputMediaPhoto(
-            media=photo,
-            caption=(
-              "💎 <b>Тариф: 9 месяцев</b>\n"
-              "<blockquote>─────────────────────────────────\n"
-              "│ 🔖 <b>Описание:</b> Стойкий запах 50 миллионов мощи\n"
-              "│ 🗓  <b>Кол-во Дней:</b> 270\n"
-              "│ 🌐 <b>Трафик:</b> ∞ Безлимит\n"
-              "│ 💶 <b>Стоимость:</b> 1109₽\n"
-              "─────────────────────────────────</blockquote>\n\n"
-              "<i>Выберите метод оплаты</i> 👇"
-            ),
+        InputMediaPhoto(
+            media=FSInputFile(photo),
+            caption=caption,
             parse_mode="HTML"
         ),
-        reply_markup=kb.payment_methods("9 месяцев")
+        reply_markup=markup
     )
 
-# Тариф 12 месяцев
-@router.callback_query(F.data == '12 месяцев')
-async def one_month(callback: CallbackQuery):
-    await callback.answer('1 год')
+    await callback.answer("Назад")
 
-    photo_path = "./assets/1year_knight.jpg"
+@router.callback_query(F.data == "back:devices")
+async def back_to_devices(callback: CallbackQuery):
+    tg_id = callback.from_user.id
+    invoice = ACTIVE_INVOICES.get(tg_id)
+
+    if not invoice:
+        return await callback.answer("Ошибка: заказ не найден")
+
+    tariff_code = invoice["tariff_code"]
+    current = invoice["devices"]
+
+    photo_path = "./assets/obhod_knight.jpg"
     photo = FSInputFile(photo_path)
 
-    await callback.message.edit_media(
-        media=InputMediaPhoto(
-            media=photo,
-            caption=(
-              "💎 <b>Тариф: 12 месяцев</b>\n"
-              "<blockquote>─────────────────────────────────\n"
-              "│ 🔖 <b>Описание:</b> Нам Нужно Больше ВЫГОДЫ!\n"
-              "│ 🗓  <b>Кол-во Дней:</b> 365\n"
-              "│ 🌐 <b>Трафик:</b> ∞ Безлимит\n"
-              "│ 💶 <b>Стоимость:</b> 1449₽\n"
-              "─────────────────────────────────</blockquote>\n\n"
-              "<i>Выберите метод оплаты</i> 👇"
-            ),
-            parse_mode="HTML"
-        ),
-        reply_markup=kb.payment_methods("12 месяцев")
+    caption = (
+        f"⚙️ <b>Настройка тарифа: {tariff_code}</b>\n\n"
+        f"<blockquote>📱 Выберите количество устройств.\n"
+        f"➕ Цена за доп. устройство: <b>50₽ / мес</b></blockquote>\n\n"
+        f"<i>Выберите количество устройств 👇</i>"
     )
 
-# Обход тарифы
-@router.callback_query(F.data == '7 дней (25 GB)')
-async def one_month(callback: CallbackQuery):
-    await callback.answer('7 дней')
-
-    photo_path = "./assets/7days_knight.jpg"
-    photo = FSInputFile(photo_path)
-
     await callback.message.edit_media(
-        media=InputMediaPhoto(
+        InputMediaPhoto(
             media=photo,
-            caption=(
-              "🥷 <b>Спец-тариф: 7 дней (25 GB)</b>\n\n"
-              "<blockquote>─────────────────────────────────\n"
-              "│ 🔖 <b>Описание:</b> Минимум затрат — максимум свободы.\n"
-              "│ 🗓  <b>Кол-во Дней:</b> 7\n"
-              "│ 🌐 <b>Трафик:</b> 25 GB\n"
-              "│ 💶 <b>Стоимость:</b> 75₽\n"
-              "─────────────────────────────────</blockquote>\n\n"
-              "<i>Выберите метод оплаты</i> 👇"
-            ),
+            caption=caption,
             parse_mode="HTML"
         ),
-        reply_markup=kb.payment_methods_special("7 дней (25 GB)")
+        reply_markup=kb.devices_selector_keyboard(
+            user_id=tg_id,
+            current=current,
+            min_value=invoice["min_value"],
+            max_value=invoice["max_value"],
+            step=invoice["step"]
+        )
     )
 
-@router.callback_query(F.data == '14 дней (50 GB)')
-async def one_month(callback: CallbackQuery):
-    await callback.answer('14 дней')
+    await callback.answer("Назад")
 
-    photo_path = "./assets/14days_knight.jpg"
-    photo = FSInputFile(photo_path)
+@router.callback_query(F.data.startswith("confirm:"))
+async def confirm_order(callback: CallbackQuery):
+    tg_id = callback.from_user.id
 
-    await callback.message.edit_media(
-        media=InputMediaPhoto(
-            media=photo,
-            caption=(
-              "🥷 <b>Спец-тариф: 14 дней (50 GB)</b>\n\n"
-              "<blockquote>─────────────────────────────────\n"
-              "│ 🔖 <b>Описание:</b> Две недели стабильного доступа.\n"
-              "│ 🗓  <b>Кол-во Дней:</b> 14\n"
-              "│ 🌐 <b>Трафик:</b> 50 GB\n"
-              "│ 💶 <b>Стоимость:</b> 135₽\n"
-              "─────────────────────────────────</blockquote>\n\n"
-              "<i>Выберите метод оплаты</i> 👇"
-            ),
-            parse_mode="HTML"
-        ),
-        reply_markup=kb.payment_methods_special("14 дней (50 GB)")
+    # Извлекаем user_id из callback_data
+    _, user_id = callback.data.split(":")
+    user_id = int(user_id)
+
+    # Берём заказ
+    invoice = ACTIVE_INVOICES.get(tg_id)
+    if not invoice:
+        return await callback.answer("❌ Ошибка: заказ не найден")
+
+    # Переход к выбору способа оплаты
+    text = (
+        "<b>🜃 Вы вошли в «Зал Монет и Теней»</b>\n\n"
+        "Перед вами стоит <b>Платёжный Сундучок</b> 📦, он ждёт вашего решения.\n\n"
+        "<i>Выберите способ оплаты 👇</i>"
     )
 
-@router.callback_query(F.data == '30 дней (100 GB)')
-async def one_month(callback: CallbackQuery):
-    await callback.answer('30 дней')
+    await callback.message.edit_caption(
+        caption=text,
+        reply_markup=kb.payment_methods(tg_id),  # ← клавиатура со способами оплаты
+        parse_mode="HTML"
+    )
 
-    photo_path = "./assets/30days_knight.jpg"
+    await callback.answer('✅ Подтверждено')
+
+@router.callback_query(F.data.startswith("cancel:"))
+async def cancel_order(callback: CallbackQuery):
+    tg_id = callback.from_user.id
+
+    _, user_id = callback.data.split(":")
+    user_id = int(user_id)
+
+    await callback.answer('❌ Отмена')
+
+    tg_id = callback.from_user.id
+    ACTIVE_INVOICES.pop(tg_id, None)
+
+    photo_path = "./assets/option_knight.jpg"
     photo = FSInputFile(photo_path)
 
     await callback.message.edit_media(
         media=InputMediaPhoto(
             media=photo,
             caption=(
-              "🥷 <b>Спец-тариф: 30 дней (100 GB)</b>\n\n"
-              "<blockquote>─────────────────────────────────\n"
-              "│ 🔖 <b>Описание:</b> Чикибоб 🤝\n"
-              "│ 🗓  <b>Кол-во Дней:</b> 30\n"
-              "│ 🌐 <b>Трафик:</b> 100 GB\n"
-              "│ 💶 <b>Стоимость:</b> 215₽\n"
-              "─────────────────────────────────</blockquote>\n\n"
-              "<i>Выберите метод оплаты</i> 👇"
+                f"<b>Заказ отменён! Вы вернулись к выбору типа тарифа</b> 🌐\n\n" 
+                f"<i>Всё ещё остаётся лишь выбрать подходящий...</i> 🤔" 
             ),
             parse_mode="HTML"
         ),
-        reply_markup=kb.payment_methods_special("30 дней (100 GB)")
+        reply_markup=kb.tarifs
     )
 
 # Создание инвойса для оплаты определённого тарифа через CryptoBot

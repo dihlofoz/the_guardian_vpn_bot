@@ -23,7 +23,6 @@ class User(Base):
     rp_gb_balance = Column(Float, default=0.0)    # накопленные GB
     rp_days_limit = Column(Integer, default=30)   # максимум дней
     rp_gb_limit = Column(Float, default=45.0)
-    devices_extra = Column(Integer, default=0) # докупленные устройства
 
     # 🔹 Обратные связи
     trial_subscriptions = relationship(
@@ -94,6 +93,8 @@ class Subscriptions(Base):
     multi_expire_date = Column(DateTime(timezone=True), nullable=True)
     multi_active = Column(Boolean, default=False)
     multi_uuid = Column(String, nullable=True)
+    
+    devices_extra = Column(Integer, default=0) # докупленные устройства
 
     user = relationship("User", back_populates="subscriptions")
 

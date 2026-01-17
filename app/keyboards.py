@@ -2,10 +2,11 @@ from aiogram.types import (ReplyKeyboardMarkup, KeyboardButton,
                            InlineKeyboardButton, InlineKeyboardMarkup)
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
+
 main = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='VPN🚀', callback_data='connectvpn'), 
-    InlineKeyboardButton(text='Профиль👤', callback_data='profile'),
-    InlineKeyboardButton(text='Помощь💬', callback_data='help')],
+    [InlineKeyboardButton(text='VPN 🚀', callback_data='connectvpn'), 
+    InlineKeyboardButton(text='Профиль 👤', callback_data='profile'),
+    InlineKeyboardButton(text='Помощь 💬', callback_data='help')],
     [InlineKeyboardButton(text='🧬 Реферальная программа', callback_data='referral')],
     [InlineKeyboardButton(text='ℹ️ О нас', callback_data='info'),
     InlineKeyboardButton(text='📢 Канал', url='https://t.me/grdVPNnews')]
@@ -44,6 +45,7 @@ ref = InlineKeyboardMarkup(inline_keyboard=[
 updatesub = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='Базовый VPN 🪴', callback_data='basevpn'),
     InlineKeyboardButton(text='Обход Whitelists 🥷', callback_data='obhodwl')],
+    [InlineKeyboardButton(text='Мульти VPN 💥', callback_data='multitarif')],
     [InlineKeyboardButton(text='← Назад', callback_data='back_main5')]
 ])
 
@@ -63,6 +65,7 @@ sub = InlineKeyboardMarkup(inline_keyboard=[
 tarifs = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="Базовый VPN 🪴", callback_data="tariffs_basic"), 
     InlineKeyboardButton(text="Обход Whitelists 🥷", callback_data="tariffs_special")],
+    [InlineKeyboardButton(text='Мульти VPN 💥', callback_data='tariffs_multi')],
     [InlineKeyboardButton(text="← Назад", callback_data="back_main1")]
 ])
 
@@ -72,22 +75,31 @@ tariffs_b = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='🦾 6 месяцев - 749₽', callback_data='6 месяцев')],
     [InlineKeyboardButton(text='🪖 9 месяцев - 1109₽', callback_data='9 месяцев')], 
     [InlineKeyboardButton(text='💎 12 месяцев - 1449₽', callback_data='12 месяцев')],
-    [InlineKeyboardButton(text='← Назад', callback_data='back_main3')]
+    [InlineKeyboardButton(text='← Назад', callback_data='back_main3'),
+    InlineKeyboardButton(text='🏠 На старт', callback_data='back_main2')]
 ])
 
 tariffs_s = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='🍼 7 дней - 75₽', callback_data='7 дней (25 GB)')],
     [InlineKeyboardButton(text='⚡️ 14 дней - 135₽', callback_data='14 дней (50 GB)')],
     [InlineKeyboardButton(text='💎 30 дней - 215₽', callback_data='30 дней (100 GB)')],
-    [InlineKeyboardButton(text='← Назад', callback_data='back_main3')]
+    [InlineKeyboardButton(text='← Назад', callback_data='back_main3'),
+    InlineKeyboardButton(text='🏠 На старт', callback_data='back_main2')]
+])
+
+tariffs_m = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text='🍼 1 месяц - 219₽', callback_data='1 месяц (225 GB)')],
+    [InlineKeyboardButton(text='⚡️ 3 месяца - 639₽', callback_data='3 месяца (675 GB)')],
+    [InlineKeyboardButton(text='← Назад', callback_data='back_main3'),
+    InlineKeyboardButton(text='🏠 На старт', callback_data='back_main2')]
 ])
 
 continue_btn_new = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="👉 Продолжить", callback_data="continue_new")]
+    [InlineKeyboardButton(text="Продолжить →", callback_data="continue_new")]
 ])
 
 continue_btn_existing = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="👉 Продолжить", callback_data="continue_existing")]
+    [InlineKeyboardButton(text="Продолжить →", callback_data="continue_existing")]
 ])
 
 agree_btn = InlineKeyboardMarkup(inline_keyboard=[
@@ -100,20 +112,12 @@ infokey = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='← Назад', callback_data='back_main')]
 ])
 
-def payment_methods(tariff_code: str): 
+def payment_methods(user_id: int):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text='🛡 RP', callback_data=f'pay:rp:{tariff_code}')],
-        [InlineKeyboardButton(text="💳 ЮKassa", callback_data=f'pay:yoo:{tariff_code}')],
-        [InlineKeyboardButton(text="💰 CryptoBot", callback_data=f'pay:crypto:{tariff_code}')],
-        [InlineKeyboardButton(text="← Назад", callback_data="back_to_tariffs_b")]
-    ])
-
-def payment_methods_special(tariff_code: str): 
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text='🛡 RP', callback_data=f'pay:rp:{tariff_code}')],
-        [InlineKeyboardButton(text="💳 ЮKassa", callback_data=f'pay:yoo:{tariff_code}')],
-        [InlineKeyboardButton(text="💰 CryptoBot", callback_data=f'pay:crypto:{tariff_code}')],
-        [InlineKeyboardButton(text="← Назад", callback_data="back_to_tariffs_s")]
+        [InlineKeyboardButton(text="💳 ЮKassa", callback_data=f'pay:yoo:{user_id}'),
+        InlineKeyboardButton(text="💰 CryptoBot", callback_data=f'pay:crypto:{user_id}')],
+        [InlineKeyboardButton(text='🛡 RP (Referral Points)', callback_data=f'pay:rp:{user_id}')],
+        [InlineKeyboardButton(text='❌ Отмена', callback_data=f'cancel:{user_id}')],
     ])
 
 def invoice_keyboard(url: str, invoice_id: str):
@@ -194,3 +198,41 @@ expired_paid_kb = InlineKeyboardMarkup(inline_keyboard=[
 expired_special_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛡 Продлить подписку", callback_data="prodlenie")]
 ])
+
+
+def devices_selector_keyboard(user_id: int, current: int, min_value: int, max_value: int, step: int = 1):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="➖",
+                callback_data=f"devices:{user_id}:set:{current-step}"
+            ),
+            InlineKeyboardButton(
+                text=f"{current} 📱",
+                callback_data="devices:none"  # просто заглушка, не кликается
+            ),
+            InlineKeyboardButton(
+                text="➕",
+                callback_data=f"devices:{user_id}:set:{current+step}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="Продолжить →",
+                callback_data=f"devices:{user_id}:next"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="← Назад",
+                callback_data=f"back:tariffs"
+            )
+        ]
+    ])
+
+def confirm_zakaz_keyboard(user_id: int):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm:{user_id}")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"cancel:{user_id}")],
+        [InlineKeyboardButton(text="← Назад", callback_data="back:devices")]
+    ])
