@@ -18,7 +18,7 @@ import app.helpers as hp
 from app.services import cryptobot_api as cb
 from app.services import yookassa_api as yoo
 from app.services import remnawave_api as rm
-from config import BOT_USERNAME, TARIFFS, ADMIN_IDS, DEFAULT_DEVICES, DEVICES_MAX, DEVICES_MIN, DEVICES_STEP
+from config import BOT_USERNAME, TARIFFS, ADMIN_IDS, DEFAULT_DEVICES, DEVICES_MAX, DEVICES_MIN, DEVICES_STEP, SPECIAL_TARIFFS, MULTI_TARIFFS
 from app.states import CreatePromo, PromoActivate, ConvertRPStates
 from app.tasks import pay_notify as pn
 
@@ -28,12 +28,30 @@ router = Router()
 ACTIVE_INVOICES = {}
 TEMP_MAILING = {}
 user_device_choice = {}
-
-SPECIAL_TARIFFS = {
-    "7 дней (25 GB)",
-    "14 дней (50 GB)",
-    "30 дней (100 GB)"
+TARIFF_HANDLERS = {
+    "SPECIAL": {
+        "create_user": rm.create_special_paid_user,
+        "extend":      hp.add_or_extend_special_subscription,
+        "photo":       "./assets/success2_knight.jpg",
+    },
+    "MULTI": {
+        "create_user": rm.create_multi_paid_user,
+        "extend":      hp.add_or_extend_multi_subscription,
+        "photo":       "./assets/success2_knight.jpg",
+    },
+    "BASE": {
+        "create_user": rm.create_paid_user,
+        "extend":      hp.add_or_extend_base_subscription,
+        "photo":       "./assets/success1_knight.jpg",
+    }
 }
+
+def detect_group(tariff_code: str) -> str:
+    if tariff_code in SPECIAL_TARIFFS:
+        return "SPECIAL"
+    if tariff_code in MULTI_TARIFFS:
+        return "MULTI"
+    return "BASE"
 
 # Начало работы бота
 @router.message(CommandStart())
@@ -87,7 +105,7 @@ async def continue_new(callback: CallbackQuery):
         ),
         reply_markup=kb.subscribe_check
     )
-    await callback.answer()
+    await callback.answer('Продолжить')
 
 
 # Кнопка "Проверить подписку"
@@ -104,7 +122,7 @@ async def check_subscription(callback: CallbackQuery):
 
 # Пользовательское соглашение
 async def show_info(callback: CallbackQuery):
-    await callback.answer()
+    await callback.answer('✅ Успешный успех')
 
     photo_path = "./assets/policy_knight.jpg"
     photo = FSInputFile(photo_path)
@@ -158,7 +176,7 @@ async def help(callback: CallbackQuery):
 # Вывод главное меню для старого пользователя
 @router.callback_query(F.data == "continue_existing")
 async def existing_user_menu(callback: CallbackQuery):
-    await callback.answer()
+    await callback.answer('Продолжить')
 
     photo_path = "./assets/agree_knight.jpg"
     photo = FSInputFile(photo_path)
@@ -200,7 +218,7 @@ async def help(callback: CallbackQuery):
 
 # Реферальная система
 @router.callback_query(F.data == 'referral')
-async def connectvpn(callback: CallbackQuery):
+async def referral(callback: CallbackQuery):
     await callback.answer('Реферальная программа')
 
     tg_id = callback.from_user.id
@@ -273,7 +291,7 @@ async def update_sub(callback: CallbackQuery):
 # Кнопка подключения к VPN
 @router.callback_query(F.data == 'connectvpn')
 async def connectvpn(callback: CallbackQuery):
-    await callback.answer('Подключение к VPN')
+    await callback.answer('Подключение к VPN 🚀')
 
     photo_path = "./assets/vpn_knight.jpg"
     photo = FSInputFile(photo_path)
@@ -560,9 +578,6 @@ async def back_main(callback: CallbackQuery):
     tg_id = callback.from_user.id
     ACTIVE_INVOICES.pop(tg_id, None)
 
-    firstname = callback.from_user.first_name or ""
-    lastname = callback.from_user.last_name or ""
-
     photo_path = "./assets/continue_knight.jpg"
     photo = FSInputFile(photo_path)
 
@@ -570,9 +585,9 @@ async def back_main(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                f"🛡 <b>Вы вернулись в начало!</b>\n\n"
-                f"Надеюсь вам тут нравится <b>{firstname} {lastname}</b>, я старался 👀\n\n"
-                f"<i>Продолжим? Выбери интересующий тебя вариант 👇</i>"
+                "🛡️ <b>С возвращение, герой! Вот ты и снова в начале.</b>\n\n"
+                "⚔️ Получай доступ и захватывай новые вершины!\n\n"
+                "<i>Выбери интересующий тебя вариант 👇</i>"
             ),
             parse_mode="HTML"
         ),
@@ -580,7 +595,7 @@ async def back_main(callback: CallbackQuery):
     )
 
 @router.callback_query(F.data == 'back_main5')
-async def connectvpn(callback: CallbackQuery):
+async def back_main5(callback: CallbackQuery):
     await callback.answer('Назад')
 
     tg_id = callback.from_user.id
@@ -820,7 +835,7 @@ async def tarif(callback: CallbackQuery):
 
 # Активация пробной подписки
 @router.callback_query(F.data == 'trysub')
-async def connectvpn(callback: CallbackQuery):
+async def trysub(callback: CallbackQuery):
     await callback.answer('Пробный период')
 
     photo_path = "./assets/try_knight.jpg"
@@ -849,9 +864,20 @@ async def handle_tariff_choice(callback: CallbackQuery):
     tariff_code = callback.data
     user_id = callback.from_user.id
 
+    # Проверяем, есть ли активная подписка этого типа
+    has_active = await hp.check_subscription_active(user_id, tariff_code)
+
+    if has_active:
+        await callback.answer(
+            "🚫 У вас уже есть активная подписка этого типа!\n\n"
+            "⚡️ Продление станет доступно после окончания.",
+            show_alert=True
+        )
+        return
+
+    # Подписка НЕ активна → можно покупать
     tariff_group = ACTIVE_INVOICES.get(user_id, {}).get("tariff_group")
 
-    # Сохраняем выбор тарифа во временное хранилище
     ACTIVE_INVOICES[user_id] = {
         "tariff_code": tariff_code,
         "devices": DEFAULT_DEVICES,
@@ -878,7 +904,7 @@ async def handle_tariff_choice(callback: CallbackQuery):
         ),
         reply_markup=kb.devices_selector_keyboard(
             user_id=user_id,
-            current=DEFAULT_DEVICES,  # стартовое значение
+            current=DEFAULT_DEVICES,
             min_value=DEVICES_MIN,
             max_value=DEVICES_MAX,
             step=DEVICES_STEP
@@ -933,21 +959,30 @@ async def devices_next(callback: CallbackQuery):
     base_price = tariff["price"]
     days = tariff["days"]
 
-    extra_price = devices_extra * 50 * (days / 30)
-    final_price = int(base_price + extra_price)
+    extra_price = round(devices_extra * 50 * (days / 30))
+    full_price = int(base_price + extra_price)
+    discount = await hp.get_active_discount(tg_id)
+
+    if discount:
+        final_price = round(full_price * (100 - discount) / 100)
+        invoice["discount"] = discount 
+    else:
+        invoice["discount"] = None
 
     invoice["devices_total"] = devices_total
     invoice["devices_extra"] = devices_extra
     invoice["base_price"] = base_price
     invoice["extra_price"] = int(extra_price)
-    invoice["final_price"] = final_price
-    invoice["amount"] = final_price
+    if discount:
+        invoice["final_price"] = final_price
+    else:
+        invoice["final_price"] = full_price
 
     photo_path = "./assets/obhod_knight.jpg"
     photo = FSInputFile(photo_path)
 
     text = (
-        f"<b>⚙️ Подтверждение заказа</b>\n\n"
+        f"<blockquote><b>☑️ Подтверждение заказа</b></blockquote>\n\n"
         f"<blockquote>💎 Тариф: <b>{tariff_code} | В него входит:</b>\n"
         f"─────────────────────────────\n"
         f"🗓 Дней: <b>{days}</b>\n"
@@ -955,9 +990,19 @@ async def devices_next(callback: CallbackQuery):
         f"📱 Устройства: <b>{devices_total}</b>\n"
         f"➕ Доп: <b>{devices_extra} × 50₽ / мес</b>\n"
         f"─────────────────────────────</blockquote>\n\n"
-        f"💰 <b>Итоговая цена: {base_price} + {extra_price} = {final_price}₽</b>\n\n"
-        "<i>Подтвердите, чтобы перейти к оплате</i> 👇"
     )
+    if discount:
+        text += f"💰 Сумма заказа: <b>{base_price}₽ + {extra_price}₽ = {full_price}₽</b>\n"
+    else:
+        text += f"💰 Сумма заказа: <b>{base_price}₽ + {extra_price}₽ = {full_price}₽</b>\n\n"
+        
+    if discount:
+        text += (f"🎁 Скидка применена: <b>-{discount}%</b>\n"
+                f"💵 Итоговая цена: <b>{final_price}₽</b>\n\n"
+            )
+
+    
+    text += "<i>Подтвердите, чтобы перейти к оплате</i> 👇"
 
     await callback.message.edit_media(
         InputMediaPhoto(media=photo, caption=text, parse_mode="HTML"),
@@ -1068,6 +1113,8 @@ async def confirm_order(callback: CallbackQuery):
     invoice = ACTIVE_INVOICES.get(tg_id)
     if not invoice:
         return await callback.answer("❌ Ошибка: заказ не найден")
+    
+    invoice["last_step"] = "payment_methods"
 
     # Переход к выбору способа оплаты
     text = (
@@ -1078,11 +1125,37 @@ async def confirm_order(callback: CallbackQuery):
 
     await callback.message.edit_caption(
         caption=text,
-        reply_markup=kb.payment_methods(tg_id),  # ← клавиатура со способами оплаты
+        reply_markup=kb.payment_methods(invoice),  # ← клавиатура со способами оплаты
         parse_mode="HTML"
     )
 
     await callback.answer('✅ Подтверждено')
+
+@router.callback_query(F.data.startswith("back:"))
+async def go_back(callback: CallbackQuery):
+    step = callback.data.split(":")[1]
+    tg_id = callback.from_user.id
+
+    invoice = ACTIVE_INVOICES.get(tg_id)
+    if not invoice:
+        return await callback.answer("❌ Ошибка: заказ не найден")
+
+    # Возвращаем на выбор метода оплаты
+    if step == "payment_methods":
+        invoice["last_step"] = "payment_methods"
+
+        text = (
+            "<b>🜃 Вы вернулись в «Зал Монет и Теней»</b>\n\n"
+            "Перед вами снова стоит <b>Платёжный Сундучок</b> 📦.\n\n"
+            "<i>Выберите способ оплаты 👇</i>"
+        )
+
+        await callback.message.edit_caption(
+            caption=text,
+            reply_markup=kb.payment_methods(invoice),
+            parse_mode="HTML"
+        )
+        return
 
 @router.callback_query(F.data.startswith("cancel:"))
 async def cancel_order(callback: CallbackQuery):
@@ -1111,114 +1184,113 @@ async def cancel_order(callback: CallbackQuery):
         reply_markup=kb.tarifs
     )
 
-# Создание инвойса для оплаты определённого тарифа через CryptoBot
+# Создание инвойса для оплаты тарифа через CryptoBot
 @router.callback_query(F.data.startswith("pay:crypto:"))
 async def handle_crypto_payment(callback: CallbackQuery):
     _, _, tariff_code = callback.data.split(":")
     tg_id = callback.from_user.id
 
-    tariff = TARIFFS.get(tariff_code)
-    if not tariff:
-        return await callback.answer("❌ Ошибка: тариф не найден")
+    # Получаем временный заказ
+    invoice = ACTIVE_INVOICES.get(tg_id)
+    if not invoice:
+        return await callback.answer("❌ Ошибка: заказ не найден")
 
-    amount_rub = tariff["price"]
-    
-    # Проверяем скидку
-    discount = await hp.get_active_discount(tg_id)
-    if discount:
-        amount_rub = round(amount_rub * (100 - discount) / 100)
-    
+    # Финальная цена (уже с учётом устройств и прочего)
+    amount_rub = invoice.get("final_price")
+    if amount_rub is None:
+        return await callback.answer("❌ Ошибка: цена не рассчитана")
+
+    # Конвертация RUB → USD
     usd_rate = await cb.get_usd_rate()
     amount_usd = round(amount_rub / usd_rate, 2)
 
-    invoice = cb.create_invoice(amount_usd, tg_id, tariff_code)
+    # Создаём инвойс CryptoBot
+    crypto_invoice = cb.create_invoice(amount_usd, tg_id, tariff_code)
+    if not crypto_invoice:
+        return await callback.answer("❌ Ошибка при создании счёта")
 
     photo_path = "./assets/cryptobot_knight.jpg"
     photo = FSInputFile(photo_path)
 
-    ACTIVE_INVOICES[tg_id] = {
-        "invoice_id": invoice["invoice_id"],
-        "tariff_code": tariff_code,
-        "amount": amount_rub,  
-        "discount": discount 
-    }
+    # Сохраняем платёж
+    invoice["invoice_id"] = crypto_invoice["invoice_id"]
+    invoice["amount"] = amount_rub  # итоговая сумма в рублях
+    invoice["amount_usd"] = amount_usd
 
-    if not invoice:
-        return await callback.answer("Ошибка при создании счёта")
+    # Формируем красивый текст
+    caption = (
+        f"💸 <b>Оплата тарифа: {tariff_code}</b>\n\n"
+        f"🛒 Общая сумма заказа: <b>{amount_rub}₽</b>\n"
+        f"🌐 К оплате в CryptoBot: <b>{amount_usd}$</b>\n\n"
+        "<i>Нажмите кнопку ниже, чтобы перейти к оплате 👇</i>"
+    )
 
+    # Показываем окно оплаты
     await callback.message.edit_media(
         media=InputMediaPhoto(
             media=photo,
-            caption=(
-                f"💸 <b>Оплата тарифа: {tariff_code}</b>\n\n"
-                f"💰 Сумма: <b>{amount_rub}₽ (~{amount_usd}$)</b>\n\n"
-                + (f"🎁 Скидка применена: <b>-{discount}%</b>\n\n" if discount else "")
-                + "<i>Нажмите кнопку ниже, чтобы оплатить 👇</i>"
-            ),
+            caption=caption,
             parse_mode="HTML"
         ),
-        reply_markup=kb.invoice_keyboard(invoice["pay_url"], invoice["invoice_id"])
+        reply_markup=kb.invoice_keyboard(crypto_invoice["pay_url"], crypto_invoice["invoice_id"])
     )
 
 
 # ✅ Проверка платежа + выдача подписки (Crypto)
 @router.callback_query(F.data.startswith("check:crypto:"))
-async def check_payment(callback: CallbackQuery):
+async def check_crypto_payment(callback: CallbackQuery):
     tg_id = callback.from_user.id
-    invoice_data = ACTIVE_INVOICES.get(tg_id)
-    if not invoice_data:
-        return await callback.answer("❌ Активный платёж не найден.")
 
+    # Достаём данные инвойса
+    invoice_data = ACTIVE_INVOICES.get(tg_id, None)
+    ACTIVE_INVOICES.pop(tg_id, None)
+    tariff_code = invoice_data["tariff_code"] if invoice_data else None
+    tariff = TARIFFS.get(tariff_code) if tariff_code else None
+
+    # --- Проверяем оплату ---
     paid = cb.check_crypto_invoice(invoice_data["invoice_id"])
     if not paid:
         return await callback.answer("⏳ Платёж ещё не подтверждён. Попробуйте позже.")
 
-    invoice_data = ACTIVE_INVOICES.pop(tg_id, None)
-    tariff_code = invoice_data["tariff_code"] if invoice_data else None
-    tariff = TARIFFS.get(tariff_code) if tariff_code else None
-    if not tariff:
-        return await callback.message.edit_caption("⚠️ Ошибка: тариф не найден", reply_markup=None)
-
     await callback.answer("✅ Оплата подтверждена!")
 
+    devices_extra = int(invoice_data.get("devices_extra", 0))
+    hwid_limit = DEFAULT_DEVICES + devices_extra
     start_date = datetime.now()
     end_date = start_date + timedelta(days=tariff["days"])
-    start_str = start_date.strftime("%Y-%m-%d %H:%M")
-    end_str = end_date.strftime("%Y-%m-%d %H:%M")
 
-    # Создание или продление пользователя
-    if tariff_code in SPECIAL_TARIFFS:
-        user_data = await rm.create_special_paid_user(tg_id, tariff_code, tariff["days"])
-    else:
-        user_data = await rm.create_paid_user(tg_id, tariff_code, tariff["days"])
+    group = detect_group(tariff_code)
+    handler = TARIFF_HANDLERS[group]
 
-    sub_link = f"https://sub.grdguard.xyz/{user_data.get('shortUuid')}" if user_data.get('shortUuid') else "—"
+    user_data = await handler["create_user"](
+        tg_id, tariff_code, tariff["days"], hwid_limit
+    )
 
-    # ✅ Сбрасываем скидку
+    sub_link = (
+        f"https://sub.grdguard.xyz/{user_data.get('shortUuid')}"
+        if user_data.get("shortUuid")
+        else "—"
+    )
+
     await hp.reset_user_discount(tg_id)
-
-    if tariff_code in SPECIAL_TARIFFS:
-        photo_path = "./assets/success2_knight.jpg"
-    else:
-        photo_path = "./assets/success1_knight.jpg"
-    photo = FSInputFile(photo_path)
+    photo = FSInputFile(handler["photo"])
 
     if user_data["status"] == "created":
         caption_text = (
             f"🎉 <b>Подписка успешно активирована!</b>\n\n"
             f"<blockquote>💎 <b>Тариф:</b> {tariff_code}\n\n"
-            f"🕒 <b>Начало:</b> {start_str}\n"
-            f"⏳ <b>Окончание:</b> {end_str}\n"
+            f"🕒 <b>Начало:</b> {start_date:%Y-%m-%d %H:%M}\n"
+            f"⏳ <b>Окончание:</b> {end_date:%Y-%m-%d %H:%M}\n"
             f"🌐 <b>Трафик:</b> {tariff['traffic']}\n\n"
             f"📦 <b>Подписка:</b> {sub_link}</blockquote>\n\n"
             f"<i>Инструкции по подключению — в разделе “Помощь💬”</i>"
         )
-    else:  # extended
+    else:
         new_end = datetime.fromisoformat(user_data["expire_at"])
         caption_text = (
             f"♻️ <b>Подписка продлена!</b>\n\n"
             f"<blockquote>💎 <b>Тариф:</b> {tariff_code}\n\n"
-            f"⏳ <b>Новая дата окончания:</b> {new_end.strftime('%Y-%m-%d %H:%M')}\n"
+            f"⏳ <b>Новая дата окончания:</b> {new_end:%Y-%m-%d %H:%M}\n"
             f"🌐 <b>Трафик:</b> {tariff['traffic']}</blockquote>\n\n"
             f"<blockquote><i>“May the Force be with you.” — Star Wars 🌌</i></blockquote>"
         )
@@ -1228,201 +1300,6 @@ async def check_payment(callback: CallbackQuery):
         reply_markup=kb.back_to_start
     )
 
-    # ===============================
-    # 📢 УВЕДОМЛЕНИЕ ОБ ОПЛАТЕ
-    # ===============================
-
-    # tg_id пользователя
-    tg_id = callback.from_user.id
-
-    # username (на случай если нет)
-    username = callback.from_user.username or f"user{tg_id}"
-
-    # информация для уведомления из user_data
-    expire_at_str = user_data["expire_at"]
-    expire_at = datetime.fromisoformat(expire_at_str)
-    is_extension = user_data["status"] == "extended"
-
-    # Достаём amount + discount из invoice_data (где ты их сохраняешь!)
-    amount_rub = invoice_data.get("amount")     # сумма в рублях
-    discount = invoice_data.get("discount")     # None или число
-
-    # отправка уведомления
-    await pn.notify_purchase(
-        bot=callback.bot,
-        tg_id=tg_id,
-        username=username,
-        tariff_code=tariff_code,
-        amount=amount_rub,
-        discount=discount,
-        is_extension=is_extension,
-        expire_at=expire_at
-    )
-
-
-# ❌ Отмена оплаты
-@router.callback_query(F.data == "cancel_payment")
-async def cancel_payment(callback: CallbackQuery):
-    tg_id = callback.from_user.id
-    invoice_data = ACTIVE_INVOICES.pop(tg_id, None)
-
-    photo_path = "./assets/option_knight.jpg"
-    photo = FSInputFile(photo_path)
-
-    if invoice_data:
-        # Опционально — отменяем инвойс на стороне CryptoBot
-        # (CryptoBot сам его закроет по таймауту, если не оплачено)
-        pass
-
-    await callback.answer("❌ Платёж отменён.")
-
-    await callback.message.edit_media(
-        media=InputMediaPhoto(
-            media=photo,
-            caption=(
-                f"<b>Вы вернулись к выбору тарифа.</b> 🌐\n\n" 
-                f"<i>Всё ещё остаётся лишь выбрать подходящий</i> 🤔" 
-            ),
-            parse_mode="HTML"
-        ),
-        reply_markup=kb.tarifs
-    )
-
-# Создание платежа в зависимости от тарифа Юkassa
-@router.callback_query(F.data.startswith("pay:yoo:"))
-async def handle_yookassa_payment(callback: CallbackQuery):
-    _, _, tariff_code = callback.data.split(":")
-    tg_id = callback.from_user.id
-
-    tariff = TARIFFS.get(tariff_code)
-    if not tariff:
-        return await callback.answer("❌ Ошибка: тариф не найден")
-
-    amount_rub = tariff["price"]
-
-    # Получение активной скидки
-    discount = await hp.get_active_discount(tg_id)
-    if discount:
-        amount_rub = round(amount_rub * (100 - discount) / 100)
-
-    photo_path = "./assets/yookassa_knight.jpg"
-    photo = FSInputFile(photo_path)
-
-    pay_url, payment_id = yoo.create_invoice(amount_rub, tg_id, tariff_code, return_url)
-    if not pay_url:
-        return await callback.answer("❌ Ошибка при создании платежа")
-
-    ACTIVE_INVOICES[tg_id] = {
-        "payment_id": payment_id,
-        "tariff_code": tariff_code,
-        "amount": amount_rub,  
-        "discount": discount 
-    }
-
-    await callback.message.edit_media(
-        media=InputMediaPhoto(
-            media=photo,
-            caption=(
-                f"💸 <b>Оплата тарифа: {tariff_code}</b>\n\n"
-                f"💰 Сумма: <b>{amount_rub}₽</b>\n\n"
-                + (f"🎁 Скидка применена: <b>-{discount}%</b>\n\n" if discount else "")
-                + "<i>Нажмите кнопку ниже, чтобы оплатить 👇</i>"
-            ),
-            parse_mode="HTML"
-        ),
-        reply_markup=kb.yookassa_invoice_keyboard(pay_url, payment_id)
-    )
-
-# ✅ Проверка платежа + выдача подписки (YooKassa)
-@router.callback_query(F.data.startswith("check:yookassa:"))
-async def check_yookassa_payment(callback: CallbackQuery):
-    _, _, payment_id = callback.data.split(":")
-    tg_id = callback.from_user.id
-
-    # Проверка оплаты через YooKassa
-    paid = yoo.check_payment(payment_id)
-    if not paid:
-        return await callback.answer("⏳ Платёж ещё не подтверждён.")
-
-    # Достаём данные инвойса
-    invoice_data = ACTIVE_INVOICES.pop(tg_id, None)
-    tariff_code = invoice_data["tariff_code"] if invoice_data else None
-    tariff = TARIFFS.get(tariff_code) if tariff_code else None
-    if not tariff:
-        return await callback.message.edit_caption("⚠️ Ошибка: тариф не найден", reply_markup=None)
-
-    await callback.answer("✅ Оплата подтверждена!")
-
-    start_date = datetime.now()
-    end_date = start_date + timedelta(days=tariff["days"])
-    start_str = start_date.strftime("%Y-%m-%d %H:%M")
-    end_str = end_date.strftime("%Y-%m-%d %H:%M")
-
-    # ----------------------------
-    # Создание или продление подписки
-    # ----------------------------
-    if tariff_code in SPECIAL_TARIFFS:
-        # Специальный тариф (Bypass/Whitelist)
-        user_data = await rm.create_special_paid_user(tg_id, tariff_code, tariff["days"])
-        # После успешного ответа с панели фиксируем в БД
-        await hp.add_or_extend_special_subscription(
-            tg_id=tg_id,
-            plan_name=tariff_code,
-            amount=tariff["price"],
-            days=tariff["days"],
-            uuid=user_data["uuid"]
-        )
-        photo_path = "./assets/success2_knight.jpg"
-    else:
-        # Базовый тариф (Base VPN)
-        user_data = await rm.create_paid_user(tg_id, tariff_code, tariff["days"])
-        await hp.add_or_extend_base_subscription(
-            tg_id=tg_id,
-            plan_name=tariff_code,
-            amount=tariff["price"],
-            days=tariff["days"],
-            uuid=user_data["uuid"]
-        )
-        photo_path = "./assets/success1_knight.jpg"
-
-    sub_link = f"https://sub.grdguard.xyz/{user_data.get('shortUuid')}" if user_data.get('shortUuid') else "—"
-    photo = FSInputFile(photo_path)
-
-    # ✅ Сбрасываем скидку
-    await hp.reset_user_discount(tg_id)
-
-    # ----------------------------
-    # Формирование текста сообщения
-    # ----------------------------
-    if user_data["status"] == "created":
-        caption_text = (
-            f"🎉 <b>Подписка успешно активирована!</b>\n\n"
-            f"<blockquote>💎 <b>Тариф:</b> {tariff_code}\n\n"
-            f"🕒 <b>Начало:</b> {start_str}\n"
-            f"⏳ <b>Окончание:</b> {end_str}\n"
-            f"🌐 <b>Трафик:</b> {tariff['traffic']}\n\n"
-            f"📦 <b>Подписка:</b> {sub_link}</blockquote>\n\n"
-            f"<i>Инструкции по подключению — в разделе “Помощь💬”</i>"
-        )
-    else:  # продление
-        new_end = datetime.fromisoformat(user_data["expire_at"])
-        caption_text = (
-            f"♻️ <b>Подписка продлена!</b>\n\n"
-            f"<blockquote>💎 <b>Тариф:</b> {tariff_code}\n\n"
-            f"⏳ <b>Новая дата окончания:</b> {new_end.strftime('%Y-%m-%d %H:%M')}\n"
-            f"🌐 <b>Трафик:</b> {tariff['traffic']}</blockquote>\n\n"
-            f"<blockquote><i>“I feel the need… the need for speed!” — Top Gun ✈️</i></blockquote>"
-        )
-
-    # Отправка медиа с текстом
-    await callback.message.edit_media(
-        media=InputMediaPhoto(media=photo, caption=caption_text, parse_mode="HTML"),
-        reply_markup=kb.back_to_start
-    )
-
-    # ----------------------------
-    # Уведомление о платеже
-    # ----------------------------
     username = callback.from_user.username or f"user{tg_id}"
     expire_at = datetime.fromisoformat(user_data["expire_at"])
     is_extension = user_data["status"] == "extended"
@@ -1441,9 +1318,166 @@ async def check_yookassa_payment(callback: CallbackQuery):
         expire_at=expire_at
     )
 
+
+# ❌ Отмена оплаты
+@router.callback_query(F.data == "cancel_payment")
+async def cancel_payment(callback: CallbackQuery):
+
+    tg_id = callback.from_user.id
+    invoice_data = ACTIVE_INVOICES.pop(tg_id, None)
+
+    photo_path = "./assets/option_knight.jpg"
+    photo = FSInputFile(photo_path)
+
+    if invoice_data:
+        pass
+
+    await callback.answer("❌ Платёж отменён.")
+
+    await callback.message.edit_media(
+        media=InputMediaPhoto(
+            media=photo,
+            caption=(
+                f"<b>Заказ отменён! Вы вернулись к выбору тарифа</b> 🌐\n\n" 
+                f"<i>Всё ещё остаётся лишь выбрать подходящий</i> 🤔" 
+            ),
+            parse_mode="HTML"
+        ),
+        reply_markup=kb.tarifs
+    )
+
+# Создание платежа в зависимости от тарифа Юkassa
+@router.callback_query(F.data.startswith("pay:yoo:"))
+async def handle_yookassa_payment(callback: CallbackQuery):
+    _, _, tariff_code = callback.data.split(":")
+    tg_id = callback.from_user.id
+
+    # Достаём временный заказ
+    invoice = ACTIVE_INVOICES.get(tg_id)
+    if not invoice:
+        return await callback.answer("❌ Ошибка: заказ не найден")
+
+    # Берём финальную цену из инвойса
+    amount_rub = invoice.get("final_price")
+
+    photo_path = "./assets/yookassa_knight.jpg"
+    photo = FSInputFile(photo_path)
+
+    # Создаём счёт YooKassa
+    pay_url, payment_id = yoo.create_invoice(amount_rub, tg_id, tariff_code, return_url)
+    if not pay_url:
+        return await callback.answer("❌ Ошибка при создании платежа")
+
+    # Сохраняем данные об оплате
+    invoice["payment_id"] = payment_id
+    invoice["amount"] = amount_rub  # как у тебя было
+
+    # Формируем текст
+    caption = (
+        f"💸 <b>Оплата тарифа: {tariff_code}</b>\n\n"
+        f"🛒 Общая сумма заказа: <b>{amount_rub}₽</b>\n\n"
+        "<i>Нажмите кнопку ниже, чтобы оплатить 👇</i>"
+    )
+
+    # Отображаем окно оплаты
+    await callback.message.edit_media(
+        media=InputMediaPhoto(
+            media=photo,
+            caption=caption,
+            parse_mode="HTML"
+        ),
+        reply_markup=kb.yookassa_invoice_keyboard(pay_url, payment_id)
+    )
+
+# ✅ Проверка платежа + выдача подписки (YooKassa)
+@router.callback_query(F.data.startswith("check:yookassa:"))
+async def check_yookassa_payment(callback: CallbackQuery):
+    _, _, payment_id = callback.data.split(":")
+    tg_id = callback.from_user.id
+
+    # ---- Проверка оплаты ----
+    if not yoo.check_payment(payment_id):
+        return await callback.answer("⏳ Платёж ещё не подтверждён.")
+
+    # Достаём данные инвойса
+    invoice_data = ACTIVE_INVOICES.get(tg_id, None)
+    ACTIVE_INVOICES.pop(tg_id, None)
+    tariff_code = invoice_data["tariff_code"] if invoice_data else None
+    tariff = TARIFFS.get(tariff_code) if tariff_code else None
+    if not tariff:
+        return await callback.message.edit_caption("⚠️ Ошибка: тариф не найден", reply_markup=None)
+    await callback.answer("✅ Оплата подтверждена!")
+
+    # ---- Параметры ----
+    devices_extra = int(invoice_data.get("devices_extra", 0))
+    hwid_limit = DEFAULT_DEVICES + devices_extra
+    start_date = datetime.now()
+    end_date = start_date + timedelta(days=tariff["days"])
+
+    # ---- Определение группы ----
+    group = detect_group(tariff_code)
+    handler = TARIFF_HANDLERS[group]
+
+    # ---- Создание / продление ----
+    user_data = await handler["create_user"](
+        tg_id, tariff_code, tariff["days"], hwid_limit
+    )
+
+    await handler["extend"](
+        tg_id=tg_id,
+        plan_name=tariff_code,
+        amount=tariff["price"],
+        days=tariff["days"],
+        uuid=user_data["uuid"],
+        devices_extra=devices_extra
+    )
+
+    photo = FSInputFile(handler["photo"])
+
+    await hp.reset_user_discount(tg_id)
+
+    if user_data["status"] == "created":
+        caption_text = (
+            f"🎉 <b>Подписка успешно активирована!</b>\n\n"
+            f"<blockquote>💎 <b>Тариф:</b> {tariff_code}\n\n"
+            f"🕒 <b>Начало:</b> {start_date:%Y-%m-%d %H:%M}\n"
+            f"⏳ <b>Окончание:</b> {end_date:%Y-%m-%d %H:%M}\n"
+            f"🌐 <b>Трафик:</b> {tariff['traffic']}\n\n"
+            f"📦 <b>Подписка:</b> https://sub.grdguard.xyz/{user_data.get('shortUuid', '—')}</blockquote>\n\n"
+            f"<i>Инструкции по подключению — в разделе “Помощь💬”</i>"
+        )
+    else:
+        new_end = datetime.fromisoformat(user_data["expire_at"])
+        caption_text = (
+            f"♻️ <b>Подписка продлена!</b>\n\n"
+            f"<blockquote>💎 <b>Тариф:</b> {tariff_code}\n\n"
+            f"⏳ <b>Новая дата окончания:</b> {new_end:%Y-%m-%d %H:%M}\n"
+            f"🌐 <b>Трафик:</b> {tariff['traffic']}</blockquote>\n\n"
+            f"<blockquote><i>“I feel the need… the need for speed!” — Top Gun ✈️</i></blockquote>"
+        )
+
+    # ---- Отправляем ----
+    await callback.message.edit_media(
+        media=InputMediaPhoto(media=photo, caption=caption_text, parse_mode="HTML"),
+        reply_markup=kb.back_to_start
+    )
+
+    # ---- Уведомление ----
+    await pn.notify_purchase(
+        bot=callback.bot,
+        tg_id=tg_id,
+        username=callback.from_user.username or f"user{tg_id}",
+        tariff_code=tariff_code,
+        amount=invoice_data.get("amount"),
+        discount=invoice_data.get("discount"),
+        is_extension=(user_data["status"] == "extended"),
+        expire_at=datetime.fromisoformat(user_data["expire_at"])
+    )
+
 # Отмена платежа yookassa
 @router.callback_query(F.data == "cancel_yookassa")
 async def cancel_yookassa_payment(callback: CallbackQuery):
+
     tg_id = callback.from_user.id
     ACTIVE_INVOICES.pop(tg_id, None)
 
@@ -1456,7 +1490,7 @@ async def cancel_yookassa_payment(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                f"<b>Вы вернулись к выбору тарифа.</b> 🌐\n\n" 
+                f"<b>Заказ отменён! Вы вернулись к выбору тарифа.</b> 🌐\n\n" 
                 f"<i>Всё ещё остаётся лишь выбрать подходящий</i> 🤔" 
             ),
             parse_mode="HTML"
@@ -1464,89 +1498,99 @@ async def cancel_yookassa_payment(callback: CallbackQuery):
         reply_markup=kb.tarifs
     )
 
+# Создание платежа в зависимости от тарифа (Referral Points)
 @router.callback_query(F.data.startswith("pay:rp:"))
 async def handle_rp_payment(callback: CallbackQuery):
     _, _, tariff_code = callback.data.split(":")
     tg_id = callback.from_user.id
 
-    tariff = TARIFFS.get(tariff_code)
-    if not tariff:
-        return await callback.answer("❌ Ошибка: тариф не найден")
+    # Достаём временный заказ
+    invoice = ACTIVE_INVOICES.get(tg_id)
+    if not invoice:
+        return await callback.answer("❌ Ошибка: заказ не найден")
 
-    amount_rub = tariff["price"]
+    final_price = invoice.get("final_price")
 
     # Конвертация RUB → RP (1 RP = 8 RUB)
-    amount_rp = math.ceil(amount_rub / 8)
+    amount_rp = math.ceil(final_price / 8)
 
-    # Проверяем баланс RP пользователя
+    # Баланс пользователя
     user_rp = await hp.get_rp_balance(tg_id)
-
     photo = FSInputFile("./assets/rp_knight.jpg")
 
+    invoice["amount_rp"] = amount_rp
+    invoice["amount"] = final_price
+    invoice["payment_method"] = "rp"
+
+    caption = (
+        f"💸 <b>Оплата тарифа: {tariff_code}</b>\n\n"
+        f"🛒 Итоговая цена: <b>{final_price}₽</b>\n"
+        f"🟪 Стоимость в RP: <b>{amount_rp} RP</b>\n"
+        f"📦 Ваш баланс: <b>{user_rp} RP</b>\n\n"
+        "<i>Подтвердить оплату RP?</i>"
+    )
+
+    # Выводим окно с подтверждением
     await callback.message.edit_media(
         media=InputMediaPhoto(
             media=photo,
-            caption=(
-                f"💸 <b>Оплата тарифа: {tariff_code}</b>\n\n"
-                f"💰 Цена: <b>{amount_rub}₽</b>\n"
-                f"🟪 В RP: <b>{amount_rp} RP</b>\n"
-                f"📦 Ваш баланс: <b>{user_rp} RP</b>\n\n"
-                + "<i>Подтвердить оплату RP?</i>"
-            ),
+            caption=caption,
             parse_mode="HTML"
         ),
         reply_markup=kb.rp_confirm_keyboard(tariff_code, amount_rp)
     )
 
+    await callback.answer('🛡 RP (Referral Points)')
+
+# Проверка платежа + создание подписки (Referral Points)
 @router.callback_query(F.data.startswith("check:rp:"))
 async def check_rp_payment(callback: CallbackQuery):
     _, _, tariff_code, amount_rp = callback.data.split(":")
     tg_id = callback.from_user.id
     amount_rp = int(amount_rp)
 
-    tariff = TARIFFS.get(tariff_code)
+    # Достаём данные инвойса
+    invoice_data = ACTIVE_INVOICES.get(tg_id, None)
+    ACTIVE_INVOICES.pop(tg_id, None)
+    tariff_code = invoice_data["tariff_code"] if invoice_data else None
+    tariff = TARIFFS.get(tariff_code) if tariff_code else None
     if not tariff:
-        return await callback.answer("❌ Тариф не найден")
+        return await callback.message.edit_caption("⚠️ Ошибка: тариф не найден", reply_markup=None)
 
+    # --- Проверка RP ---
     user_rp = await hp.get_rp_balance(tg_id)
-
     if user_rp < amount_rp:
         return await callback.answer("❌ Недостаточно RP для оплаты.")
 
-    # Списываем RP
+    # --- Списываем RP ---
     await hp.remove_rp(tg_id, amount_rp, reason=f"Оплата тарифа {tariff_code}")
-
-    start_date = datetime.now()
-    end_date = start_date + timedelta(days=tariff["days"])
-    start_str = start_date.strftime("%Y-%m-%d %H:%M")
-    end_str = end_date.strftime("%Y-%m-%d %H:%M")
-
     await callback.answer("✅ Оплата подтверждена!")
 
-    # Создание/продление подписки
-    if tariff_code in SPECIAL_TARIFFS:
-        user_data = await rm.create_special_paid_user(tg_id, tariff_code, tariff["days"])
-    else:
-        user_data = await rm.create_paid_user(tg_id, tariff_code, tariff["days"])
-
-    sub_link = f"https://sub.grdguard.xyz/{user_data.get('shortUuid')}" if user_data.get('shortUuid') else "—"
-
-    # Оформление результата
-    if tariff_code in SPECIAL_TARIFFS:
-        photo_path = "./assets/success2_knight.jpg"
-    else:
-        photo_path = "./assets/success1_knight.jpg"
-    photo = FSInputFile(photo_path)
-
+    # ---- Параметры ----
+    devices_extra = int(invoice_data.get("devices_extra", 0))
+    hwid_limit = DEFAULT_DEVICES + devices_extra
     start_date = datetime.now()
     end_date = start_date + timedelta(days=tariff["days"])
+
+    group = detect_group(tariff_code)
+    handler = TARIFF_HANDLERS[group]
+
+    user_data = await handler["create_user"](
+        tg_id, tariff_code, tariff["days"], hwid_limit
+    )
+    photo = FSInputFile(handler["photo"])
+    sub_link = (
+        f"https://sub.grdguard.xyz/{user_data.get('shortUuid')}"
+        if user_data.get("shortUuid")
+        else "—"
+    )
 
     if user_data["status"] == "created":
         caption = (
             f"🎉 <b>Подписка успешно активирована!</b>\n\n"
             f"<blockquote>💎 <b>Тариф:</b> {tariff_code}\n\n"
-            f"🕒 <b>Начало:</b> {start_str}\n"
-            f"⏳ <b>Окончание:</b> {end_str}\n"
+            f"🕒 <b>Начало:</b> {start_date:%Y-%m-%d %H:%M}\n"
+            f"⏳ <b>Окончание:</b> {end_date:%Y-%m-%d %H:%M}\n"
             f"🌐 <b>Трафик:</b> {tariff['traffic']}\n\n"
             f"📦 <b>Подписка:</b> {sub_link}</blockquote>\n\n"
             f"<i>Инструкции по подключению — в разделе “Помощь💬”</i>"
@@ -1556,28 +1600,44 @@ async def check_rp_payment(callback: CallbackQuery):
         caption = (
             f"♻️ <b>Подписка продлена!</b>\n\n"
             f"<blockquote>💎 <b>Тариф:</b> {tariff_code}\n\n"
-            f"⏳ <b>Новая дата окончания:</b> {new_end.strftime('%Y-%m-%d %H:%M')}\n"
+            f"⏳ <b>Новая дата окончания:</b> {new_end:%Y-%m-%d %H:%M}\n"
             f"🌐 <b>Трафик:</b> {tariff['traffic']}</blockquote>\n\n"
             f"<blockquote><i>“It doesn’t matter how fast you go — what matters is that you’re moving in the right direction 🤝”</i></blockquote>"
         )
 
+    # --- Ответ ---
     await callback.message.edit_media(
         media=InputMediaPhoto(media=photo, caption=caption, parse_mode="HTML"),
         reply_markup=kb.back_to_start
     )
 
+    await pn.notify_purchase(
+        bot=callback.bot,
+        tg_id=tg_id,
+        username=callback.from_user.username or f"user{tg_id}",
+        tariff_code=tariff_code,
+        amount=amount_rp,
+        discount=invoice_data.get("discount"),
+        is_extension=(user_data["status"] == "extended"),
+        expire_at=datetime.fromisoformat(user_data["expire_at"]),
+        paid_with_tokens=True
+    )
+
 @router.callback_query(F.data == "cancel_rp")
 async def cancel_rp_payment(callback: CallbackQuery):
-    photo = FSInputFile("./assets/option_knight.jpg")
 
+    tg_id = callback.from_user.id
+    ACTIVE_INVOICES.pop(tg_id, None)
+
+    photo = FSInputFile("./assets/option_knight.jpg")
     await callback.answer("❌ Оплата RP отменена.")
 
     await callback.message.edit_media(
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "<b>Вы вернулись к выбору тарифа.</b> 🌐\n\n"
-                "<i>Выберите подходящий способ оплаты</i>"
+                f"<b>Заказ отменён! Вы вернулись к выбору тарифа.</b> 🌐\n\n"
+                f"<i>Всё ещё остаётся лишь выбрать подходящий</i> 🤔"
             ),
             parse_mode="HTML"
         ),

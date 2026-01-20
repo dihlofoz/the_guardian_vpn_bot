@@ -66,7 +66,8 @@ tarifs = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="Базовый VPN 🪴", callback_data="tariffs_basic"), 
     InlineKeyboardButton(text="Обход Whitelists 🥷", callback_data="tariffs_special")],
     [InlineKeyboardButton(text='Мульти VPN 💥', callback_data='tariffs_multi')],
-    [InlineKeyboardButton(text="← Назад", callback_data="back_main1")]
+    [InlineKeyboardButton(text="← Назад", callback_data="back_main1"),
+    InlineKeyboardButton(text='🏠 На старт', callback_data='back_main2')]
 ])
 
 tariffs_b = InlineKeyboardMarkup(inline_keyboard=[
@@ -88,8 +89,8 @@ tariffs_s = InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 tariffs_m = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='🍼 1 месяц - 219₽', callback_data='1 месяц (225 GB)')],
-    [InlineKeyboardButton(text='⚡️ 3 месяца - 639₽', callback_data='3 месяца (675 GB)')],
+    [InlineKeyboardButton(text='🍼 1 месяц - 219₽', callback_data='1 месяц (300 GB)')],
+    [InlineKeyboardButton(text='⚡️ 3 месяца - 639₽', callback_data='3 месяца (900 GB)')],
     [InlineKeyboardButton(text='← Назад', callback_data='back_main3'),
     InlineKeyboardButton(text='🏠 На старт', callback_data='back_main2')]
 ])
@@ -112,11 +113,14 @@ infokey = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='← Назад', callback_data='back_main')]
 ])
 
-def payment_methods(user_id: int):
+def payment_methods(invoice: dict):
+    tariff_code = invoice['tariff_code']
+    user_id = invoice['user_id']
+
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 ЮKassa", callback_data=f'pay:yoo:{user_id}'),
-        InlineKeyboardButton(text="💰 CryptoBot", callback_data=f'pay:crypto:{user_id}')],
-        [InlineKeyboardButton(text='🛡 RP (Referral Points)', callback_data=f'pay:rp:{user_id}')],
+        [InlineKeyboardButton(text="💳 ЮKassa", callback_data=f'pay:yoo:{tariff_code}'),
+        InlineKeyboardButton(text="💰 CryptoBot", callback_data=f'pay:crypto:{tariff_code}')],
+        [InlineKeyboardButton(text='🛡 RP (Referral Points)', callback_data=f'pay:rp:{tariff_code}')],
         [InlineKeyboardButton(text='❌ Отмена', callback_data=f'cancel:{user_id}')],
     ])
 
@@ -124,20 +128,23 @@ def invoice_keyboard(url: str, invoice_id: str):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💰 Оплатить", url=url)],
         [InlineKeyboardButton(text="🔄 Проверить оплату", callback_data=f"check:crypto:{invoice_id}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_payment")]
+        [InlineKeyboardButton(text="← Назад", callback_data="back:payment_methods"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_payment")]
     ])
 
 def yookassa_invoice_keyboard(url: str, payment_id: str):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 Оплатить через Юkassa", url=url)],
         [InlineKeyboardButton(text="🔄 Проверить оплату", callback_data=f"check:yookassa:{payment_id}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_yookassa")]
+        [InlineKeyboardButton(text="← Назад", callback_data="back:payment_methods"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_yookassa")]
     ])
 
 def rp_confirm_keyboard(tariff_code: str, rp_amount: int):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"✅ Подтвердить оплату ({rp_amount} RP)", callback_data=f"check:rp:{tariff_code}:{rp_amount}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_rp")]
+        [InlineKeyboardButton(text="← Назад", callback_data="back:payment_methods"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_rp")]
     ])
 
 mailing =  InlineKeyboardMarkup(inline_keyboard=[
@@ -233,6 +240,7 @@ def devices_selector_keyboard(user_id: int, current: int, min_value: int, max_va
 def confirm_zakaz_keyboard(user_id: int):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm:{user_id}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"cancel:{user_id}")],
-        [InlineKeyboardButton(text="← Назад", callback_data="back:devices")]
+        [InlineKeyboardButton(text="← Назад", callback_data="back:devices"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data=f"cancel:{user_id}")]
     ])
+

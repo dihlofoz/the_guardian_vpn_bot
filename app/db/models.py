@@ -77,6 +77,7 @@ class Subscriptions(Base):
     base_expire_date = Column(DateTime(timezone=True), nullable=True)
     base_active = Column(Boolean, default=False)
     base_uuid = Column(String, nullable=True)
+    base_devices_extra = Column(Integer, default=0, nullable=False)
 
     # --- BYPASS / WHITELIST ---
     bypass_plan_name = Column(String, nullable=True)
@@ -85,6 +86,7 @@ class Subscriptions(Base):
     bypass_expire_date = Column(DateTime(timezone=True), nullable=True)
     bypass_active = Column(Boolean, default=False)
     bypass_uuid = Column(String, nullable=True)
+    bypass_devices_extra = Column(Integer, default=0, nullable=False) 
 
     # --- MULTI ---
     multi_plan_name = Column(String, nullable=True)
@@ -93,8 +95,7 @@ class Subscriptions(Base):
     multi_expire_date = Column(DateTime(timezone=True), nullable=True)
     multi_active = Column(Boolean, default=False)
     multi_uuid = Column(String, nullable=True)
-    
-    devices_extra = Column(Integer, default=0) # докупленные устройства
+    multi_devices_extra = Column(Integer, default=0, nullable=False) 
 
     user = relationship("User", back_populates="subscriptions")
 

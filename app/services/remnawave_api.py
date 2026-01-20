@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from config import REMNAWAVE_BASE_URL, REMNAWAVE_TOKEN, SQUAD_ID, TARIFFS, TRIAL_DAYS, TRIAL_TRAFFIC_BYTES, SECOND_SQUAD_ID, SPECIAL_TRAFFIC_LIMITS, SQUAD_ID_TRIAL
+from config import REMNAWAVE_BASE_URL, REMNAWAVE_TOKEN, SQUAD_ID, TARIFFS, TRIAL_DAYS, TRIAL_TRAFFIC_BYTES, SECOND_SQUAD_ID, SPECIAL_TRAFFIC_LIMITS, SQUAD_ID_TRIAL, DEFAULT_DEVICES, MULTI_TRAFFIC_LIMITS
 import asyncio
 import re
 import httpx
@@ -116,9 +116,35 @@ async def get_short_uuid_by_telegram_special(telegram_id: int) -> str:
 
     # Если SPECIAL пользователи не найдены
     raise Exception(f"У пользователя с Telegram ID {telegram_id} нет SPECIAL-подписки")
+
+# Возвращает shortUuid специальной (Special) подписки для пользователя по Telegram ID
+async def get_short_uuid_by_telegram_multi(telegram_id: int) -> str:
+    url = f"{REMNAWAVE_BASE_URL.rstrip('/')}/users/by-telegram-id/{telegram_id}"
+    headers = {"Authorization": f"Bearer {REMNAWAVE_TOKEN}"}
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(url, headers=headers)
+        r.raise_for_status()
+
+    users = r.json().get("response", [])
+    if not users:
+        raise Exception(f"Пользователь с Telegram ID {telegram_id} не найден")
+
+    # Ищем пользователя, у которого description содержит "multi"
+    for user in users:
+        desc = (user.get("description") or "").lower()
+        if "multi" in desc:
+            short_uuid = user.get("shortUuid")
+            if short_uuid:
+                return short_uuid
+            else:
+                raise Exception("У найденного MULTI-пользователя отсутствует shortUuid")
+
+    # Если SPECIAL пользователи не найдены
+    raise Exception(f"У пользователя с Telegram ID {telegram_id} нет MULTI-подписки")
  
 # Создаёт платного пользователя через Remnawave API
-async def create_paid_user(tg_id: int, tariff_code: str, days: int):
+async def create_paid_user(tg_id: int, tariff_code: str, days: int, hwid_limit: int):
     safe_tariff_code = re.sub(r'[^A-Za-z0-9_-]', '_', tariff_code)
     base_username = f"paid_{tg_id}_{safe_tariff_code}"
 
@@ -143,7 +169,7 @@ async def create_paid_user(tg_id: int, tariff_code: str, days: int):
                 "telegramId": tg_id,
                 "email": f"{base_username}@paid.remna",
                 "description": f"Paid {tariff_code}",
-                "hwidDeviceLimit": 3,
+                "hwidDeviceLimit": hwid_limit,
                 "activeInternalSquads": [SQUAD_ID]
             }
 
@@ -185,7 +211,7 @@ async def create_paid_user(tg_id: int, tariff_code: str, days: int):
                 "expireAt": expire_at_str,
                 "telegramId": tg_id,
                 "email": f"{base_username}@paid.remna",
-                "hwidDeviceLimit": 3,
+                "hwidDeviceLimit": hwid_limit,
                 "activeInternalSquads": [SQUAD_ID],
                 "description": f"Paid {tariff_code}"
             }
@@ -216,7 +242,7 @@ async def create_paid_user(tg_id: int, tariff_code: str, days: int):
                 "expire_at": expire_at_str
             }
         
-async def create_special_paid_user(tg_id: int, tariff_code: str, days: int):
+async def create_special_paid_user(tg_id: int, tariff_code: str, days: int, hwid_limit: int):
     safe_tariff_code = re.sub(r'[^A-Za-z0-9_-]', '_', tariff_code)
     base_username = f"special_{tg_id}_{safe_tariff_code}"
 
@@ -265,7 +291,7 @@ async def create_special_paid_user(tg_id: int, tariff_code: str, days: int):
                 "telegramId": tg_id,
                 "email": f"{base_username}@special.remna",
                 "description": f"Special {tariff_code}",
-                "hwidDeviceLimit": 3,
+                "hwidDeviceLimit": hwid_limit,
                 "activeInternalSquads": [SECOND_SQUAD_ID],
                 "trafficLimitBytes": new_limit,
                 "trafficLimitStrategy": "NO_RESET"
@@ -311,7 +337,7 @@ async def create_special_paid_user(tg_id: int, tariff_code: str, days: int):
                 "expireAt": expire_at_str,
                 "telegramId": tg_id,
                 "email": f"{base_username}@special.remna",
-                "hwidDeviceLimit": 3,
+                "hwidDeviceLimit": hwid_limit,
                 "activeInternalSquads": [SECOND_SQUAD_ID],
                 "description": f"Special {tariff_code}",
                 "trafficLimitBytes": traffic_limit_bytes,
@@ -334,6 +360,133 @@ async def create_special_paid_user(tg_id: int, tariff_code: str, days: int):
             )
 
             short_uuid = await get_short_uuid_by_telegram_special(tg_id)
+
+            return {
+                "status": "created",
+                "username": base_username,
+                "uuid": uuid,
+                "shortUuid": short_uuid,
+                "expire_at": expire_at_str
+            }
+        
+async def create_multi_paid_user(tg_id: int, tariff_code: str, days: int, hwid_limit: int):
+    safe_tariff_code = re.sub(r'[^A-Za-z0-9_-]', '_', tariff_code)
+    base_username = f"multi_{tg_id}_{safe_tariff_code}"
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {REMNAWAVE_TOKEN}"
+    }
+
+    # Берём лимит по тарифу
+    traffic_limit_bytes = MULTI_TRAFFIC_LIMITS.get(tariff_code, 0)  # 0 = безлимит
+
+    # Проверяем активную спец-подписку
+    active = await hp.get_active_multi_subscription(tg_id)
+
+    async with httpx.AsyncClient(timeout=30) as client:
+
+        #  ПРОДЛЕНИЕ
+        if active and active.get("uuid"):
+
+            # Узнаём текущий трафик пользователя из RemnaWave
+            user_data_resp = await client.get(
+                f"{REMNA_API_URL}/{active['uuid']}",
+                headers=headers
+            )
+
+            if user_data_resp.status_code != 200:
+                raise Exception(f"Ошибка получения данных пользователя: {user_data_resp.text}")
+
+            user_data = user_data_resp.json().get("response", {})
+            current_limit = user_data.get("trafficLimitBytes", 0) or 0
+
+            # Добавляем новый объём
+            add_limit = traffic_limit_bytes
+            new_limit = current_limit + add_limit
+
+            # Продлеваем срок
+            new_expire_dt = active["expire_date"] + timedelta(days=days)
+            new_expire_str = new_expire_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+            # Готовим payload
+            payload = {
+                "uuid": active["uuid"],
+                "username": active.get("username", base_username),
+                "status": "ACTIVE",
+                "expireAt": new_expire_str,
+                "telegramId": tg_id,
+                "email": f"{base_username}@multi.remna",
+                "description": f"Multi {tariff_code}",
+                "hwidDeviceLimit": hwid_limit,
+                "activeInternalSquads": [SQUAD_ID_TRIAL],
+                "trafficLimitBytes": new_limit,
+                "trafficLimitStrategy": "NO_RESET"
+            }
+
+            # PATCH в панель
+            response = await client.patch(
+                REMNA_API_URL,
+                headers=headers,
+                json=payload
+            )
+
+            if response.status_code not in (200, 201, 204):
+                raise Exception(f"{response.status_code} - {response.text}")
+
+            # Обновляем запись в БД
+            await hp.add_or_extend_multi_subscription(
+                tg_id=tg_id,
+                plan_name=tariff_code,
+                days=days,
+                amount=TARIFFS[tariff_code]["price"],
+                uuid=active["uuid"]
+            )
+
+            short_uuid = await get_short_uuid_by_telegram_multi(tg_id)
+
+            return {
+                "status": "extended",
+                "expire_at": new_expire_str,
+                "uuid": active["uuid"],
+                "shortUuid": short_uuid
+            }
+
+        
+        # СОЗДАНИЕ
+        else:
+            expire_at_dt = datetime.utcnow() + timedelta(days=days)
+            expire_at_str = expire_at_dt.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+            payload = {
+                "username": base_username,
+                "status": "ACTIVE",
+                "expireAt": expire_at_str,
+                "telegramId": tg_id,
+                "email": f"{base_username}@special.remna",
+                "hwidDeviceLimit": hwid_limit,
+                "activeInternalSquads": [SQUAD_ID_TRIAL],
+                "description": f"Multi {tariff_code}",
+                "trafficLimitBytes": traffic_limit_bytes,
+                "trafficLimitStrategy": "NO_RESET"
+            }
+
+            response = await client.post(REMNA_API_URL, headers=headers, json=payload)
+            if response.status_code not in (200, 201):
+                raise Exception(f"{response.status_code} - {response.text}")
+
+            res_json = response.json().get("response", {})
+            uuid = res_json.get("uuid")
+
+            await hp.add_or_extend_multi_subscription(
+                tg_id=tg_id,
+                plan_name=tariff_code,
+                days=days,
+                amount=TARIFFS[tariff_code]["price"],
+                uuid=uuid
+            )
+
+            short_uuid = await get_short_uuid_by_telegram_multi(tg_id)
 
             return {
                 "status": "created",

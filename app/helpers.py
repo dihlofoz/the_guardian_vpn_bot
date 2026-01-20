@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from app.db.models import User, Referral, TrialSubscription, PromoBonusDays, PromoDiscount, PromoUse, ExpiredSubscriptionNotification, NotificationMeta, Subscriptions
 from app.db.dealer import async_session_maker
 from sqlalchemy.exc import SQLAlchemyError
-from config import CHANNEL_ID
+from config import CHANNEL_ID, MULTI_TARIFFS, BASE_TARIFFS, SPECIAL_TARIFFS
 
 from aiogram.enums.chat_member_status import ChatMemberStatus
 
@@ -592,7 +592,7 @@ async def should_reset_notifications():
 # -------------------------------
 # Base VPN
 # -------------------------------
-async def add_or_extend_base_subscription(tg_id: int, plan_name: str, amount: float, days: int, uuid: str | None = None):
+async def add_or_extend_base_subscription(tg_id: int, plan_name: str, amount: float, days: int, uuid: str, devices_extra: int = 0):
     async with async_session_maker() as session:
         try:
             now = datetime.utcnow()
@@ -610,7 +610,8 @@ async def add_or_extend_base_subscription(tg_id: int, plan_name: str, amount: fl
                     base_start_date=now,
                     base_expire_date=now + timedelta(days=days),
                     base_active=True,
-                    base_uuid=uuid
+                    base_uuid=uuid,
+                    base_devices_extra=devices_extra
                 )
                 session.add(sub)
             else:
@@ -621,6 +622,7 @@ async def add_or_extend_base_subscription(tg_id: int, plan_name: str, amount: fl
                     sub.base_plan_name = plan_name
                     sub.base_amount = amount
                     sub.base_uuid = uuid
+                    sub.base_devices_extra = devices_extra
                 else:
                     # Создание новой подписки для Base
                     sub.base_plan_name = plan_name
@@ -629,6 +631,7 @@ async def add_or_extend_base_subscription(tg_id: int, plan_name: str, amount: fl
                     sub.base_expire_date = now + timedelta(days=days)
                     sub.base_active = True
                     sub.base_uuid = uuid
+                    sub.base_devices_extra = devices_extra
 
             await session.commit()
         except SQLAlchemyError:
@@ -638,7 +641,7 @@ async def add_or_extend_base_subscription(tg_id: int, plan_name: str, amount: fl
 # -------------------------------
 # Bypass / Whitelist VPN
 # -------------------------------
-async def add_or_extend_special_subscription(tg_id: int, plan_name: str, amount: float, days: int, uuid: str | None = None):
+async def add_or_extend_special_subscription(tg_id: int, plan_name: str, amount: float, days: int, uuid: str, devices_extra: int = 0):
     async with async_session_maker() as session:
         try:
             now = datetime.utcnow()
@@ -655,7 +658,8 @@ async def add_or_extend_special_subscription(tg_id: int, plan_name: str, amount:
                     bypass_start_date=now,
                     bypass_expire_date=now + timedelta(days=days),
                     bypass_active=True,
-                    bypass_uuid=uuid
+                    bypass_uuid=uuid,
+                    bypass_devices_extra=devices_extra
                 )
                 session.add(sub)
             else:
@@ -664,6 +668,7 @@ async def add_or_extend_special_subscription(tg_id: int, plan_name: str, amount:
                     sub.bypass_plan_name = plan_name
                     sub.bypass_amount = amount
                     sub.bypass_uuid = uuid
+                    sub.bypass_devices_extra = devices_extra
                 else:
                     sub.bypass_plan_name = plan_name
                     sub.bypass_amount = amount
@@ -671,6 +676,7 @@ async def add_or_extend_special_subscription(tg_id: int, plan_name: str, amount:
                     sub.bypass_expire_date = now + timedelta(days=days)
                     sub.bypass_active = True
                     sub.bypass_uuid = uuid
+                    sub.bypass_devices_extra = devices_extra
 
             await session.commit()
         except SQLAlchemyError:
@@ -680,7 +686,7 @@ async def add_or_extend_special_subscription(tg_id: int, plan_name: str, amount:
 # -------------------------------
 # Multi VPN
 # -------------------------------
-async def add_or_extend_multi_subscription(tg_id: int, plan_name: str, amount: float, days: int, uuid: str | None = None):
+async def add_or_extend_multi_subscription(tg_id: int, plan_name: str, amount: float, days: int, uuid: str, devices_extra: int = 0):
     async with async_session_maker() as session:
         try:
             now = datetime.utcnow()
@@ -697,7 +703,8 @@ async def add_or_extend_multi_subscription(tg_id: int, plan_name: str, amount: f
                     multi_start_date=now,
                     multi_expire_date=now + timedelta(days=days),
                     multi_active=True,
-                    multi_uuid=uuid
+                    multi_uuid=uuid,
+                    multi_devices_extra=devices_extra
                 )
                 session.add(sub)
             else:
@@ -706,6 +713,7 @@ async def add_or_extend_multi_subscription(tg_id: int, plan_name: str, amount: f
                     sub.multi_plan_name = plan_name
                     sub.multi_amount = amount
                     sub.multi_uuid = uuid
+                    sub.multi_devices_extra = devices_extra
                 else:
                     sub.multi_plan_name = plan_name
                     sub.multi_amount = amount
@@ -713,6 +721,7 @@ async def add_or_extend_multi_subscription(tg_id: int, plan_name: str, amount: f
                     sub.multi_expire_date = now + timedelta(days=days)
                     sub.multi_active = True
                     sub.multi_uuid = uuid
+                    sub.multi_devices_extra = devices_extra
 
             await session.commit()
         except SQLAlchemyError:
@@ -793,3 +802,45 @@ async def get_active_multi_subscription(tg_id: int):
         except SQLAlchemyError:
             await session.rollback()
             raise
+
+async def check_subscription_active(tg_id: int, tariff_code: str) -> bool:
+    """
+    Проверяет, активна ли подписка соответствующей группы тарифов
+    (BASE / SPECIAL / MULTI).
+    """
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(Subscriptions).where(Subscriptions.tg_id == tg_id)
+        )
+        sub = result.scalar_one_or_none()
+
+        if not sub:
+            return False
+
+        now = datetime.now(timezone.utc)
+
+        # --- BASE VPN ---
+        if tariff_code in BASE_TARIFFS:
+            return (
+                sub.base_active is True
+                and sub.base_expire_date is not None
+                and sub.base_expire_date > now
+            )
+
+        # --- SPECIAL (BYPASS / WHITELIST) ---
+        if tariff_code in SPECIAL_TARIFFS:
+            return (
+                sub.bypass_active is True
+                and sub.bypass_expire_date is not None
+                and sub.bypass_expire_date > now
+            )
+
+        # --- MULTI ---
+        if tariff_code in MULTI_TARIFFS:
+            return (
+                sub.multi_active is True
+                and sub.multi_expire_date is not None
+                and sub.multi_expire_date > now
+            )
+
+        return False
