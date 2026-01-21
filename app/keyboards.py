@@ -53,6 +53,22 @@ back_to_start = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='🏠 Вернуться на старт', callback_data='back_main2')]
 ])
 
+def subscription_result_keyboard(sub_link: str):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="🔗 Подключить VPN",
+                url=sub_link
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text='🏠 Вернуться на старт',
+                callback_data='back_main2'
+            )
+        ]
+    ])
+
 choose_amount_kb = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="← Назад", callback_data="back_updatesub")]
 ])
@@ -167,6 +183,7 @@ cancel =  InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 profile_logic = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text='⚙️ Панель управления подписками', callback_data='paneluprsubs')],
     [InlineKeyboardButton(text='🎁 Активировать промокод', callback_data='activate_promo')],
     [InlineKeyboardButton(text='💳 Продлить подписку', callback_data='prodlenie')],
     [InlineKeyboardButton(text='← Назад', callback_data='back_main')]

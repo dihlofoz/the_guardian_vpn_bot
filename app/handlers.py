@@ -335,11 +335,14 @@ async def help(callback: CallbackQuery):
 async def profile(callback: CallbackQuery):
     await callback.answer('Ваш профиль👤')
 
+    from datetime import datetime
+
     tg_id = callback.from_user.id
     full_name = callback.from_user.full_name
     username = callback.from_user.username or "—"
 
     user_data = await rm.get_user_by_telegram_id(tg_id)
+    raw_users = user_data.get("users") if user_data else None
 
     caption = (
         f"<blockquote>🛡️ <b>Профиль пользователя</b></blockquote>\n\n"
@@ -347,131 +350,109 @@ async def profile(callback: CallbackQuery):
         f"🆔 <b>Username:</b> @{username}\n\n"
     )
 
-    # --- Извлекаем подписки из панели ---
-    raw_users = user_data.get("users") if user_data else None
-    user_list = [u for u in raw_users if u.get("telegramId") == tg_id] if raw_users else []
-
-    # Если нет НИ ОДНОЙ подписки
-    if not user_list:
+    # Если подписок нет
+    if not raw_users:
         caption += (
-            "<blockquote>🚫 <b>Активных подписок не найдено.</b>\n"
-            "<b>Получите пробный ключ или оформите подписку</b>💎</blockquote>"
+            "<blockquote>"
+            "🚫 <b>У вас нет активных подписок.</b>\n"
+            "Получите пробный ключ или оформите подписку💎"
+            "</blockquote>"
         )
     else:
-        # Утилиты
-        from datetime import datetime
-        fmt = lambda d: datetime.fromisoformat(d.replace("Z", "+00:00")).strftime("%d.%m.%Y") if d else "—"
-        to_gb = lambda b: round(b / 1024**3, 2)
+        subscriptions = raw_users[:3]
 
-        # --- Разделяем по типам подписок ---
-        paid_trial = []
-        special = []
+        def fmt_date(d: str | None):
+            if not d:
+                return "—"
+            try:
+                return datetime.fromisoformat(d.replace("Z", "+00:00")).strftime("%d.%m.%Y")
+            except:
+                return "—"
 
-        for u in user_list:
-            desc = u.get("description", "")
-            prefix = desc.split()[0] if desc else ""
+        def to_gb(b):
+            return round(b / 1024**3, 2)
 
-            if prefix in ("Paid", "Trial"):
-                paid_trial.append(u)
-            elif prefix == "Special":
-                special.append(u)
+        def clean_plan(desc: str | None):
+            if not desc:
+                return "—"
+            parts = desc.split()
+            # Убираем Paid/Special/Multi
+            if parts[0] in ("Paid", "Special", "Multi"):
+                return " ".join(parts[1:]) or parts[0]
+            return desc
 
-        # --- Функция выбора самой новой подписки ---
-        def pick_latest(subs):
-            if not subs:
-                return None
-            return max(subs, key=lambda s: s.get("expireAt") or "")
+        # Генерация UI для каждой подписки
+        for i, sub in enumerate(subscriptions, start=1):
+            plan = clean_plan(sub.get("description"))
+            start = fmt_date(sub.get("createdAt"))
+            end = fmt_date(sub.get("expireAt"))
 
-        paid_trial_sub = pick_latest(paid_trial)
-        special_sub = pick_latest(special)
-
-        # --- Получаем названия тарифов ---
-        paid_trial_plan_name = await hp.get_latest_plan_name(tg_id)
-        special_plan_name = await hp.get_latest_special_plan_name(tg_id)
-
-        # =====================================================================
-        #                         БЛОК PAID / TRIAL
-        # =====================================================================
-        caption += "<blockquote>✍️ <b>Платная / Пробная подписка:</b>\n\n"
-
-        if not paid_trial_sub:
-            caption += "🚫 <b>Активных подписок не найдено.</b>\n</blockquote>\n"
-        else:
-            u = paid_trial_sub
-
-            start_str = fmt(u.get("createdAt"))
-            end_str = fmt(u.get("expireAt"))
-            used_bytes = u.get("userTraffic", {}).get("usedTrafficBytes", 0)
+            used_bytes = sub.get("userTraffic", {}).get("usedTrafficBytes", 0)
             used_gb = to_gb(used_bytes)
-            limit_bytes = u.get("trafficLimitBytes", 0)
-            traffic_str = f"{used_gb} / {to_gb(limit_bytes)} ГБ" if limit_bytes else f"{used_gb} / ∞"
 
-            status_raw = u.get("status", "—").upper()
+            limit_bytes = sub.get("trafficLimitBytes", 0)
+            traffic_limit = to_gb(limit_bytes) if limit_bytes else None
+
+            if traffic_limit:
+                traffic_str = f"{used_gb} / {traffic_limit} ГБ"
+            else:
+                traffic_str = f"{used_gb} ГБ / ∞"
+
+            status_raw = sub.get("status", "").upper()
             if status_raw == "ACTIVE":
-                status = "🟢 Active"
+                status = "🟢 ACTIVE"
             elif status_raw == "EXPIRED":
-                status = "🔴 Expired"
+                status = "🔴 EXPIRED"
             else:
                 status = "⚪️ —"
 
-            sub_link = u.get("subscriptionUrl") or "—"
-            plan_name = paid_trial_plan_name or u.get("description", "—")
+            user_uuid = sub.get("uuid")
+            hwid_limit = sub.get("hwidDeviceLimit", 0)
 
-            caption += (
-                f"💎 <b>Тариф:</b> {plan_name}\n\n"
-                f"📌 <b>Статус:</b> {status}\n"
-                f"🕒 <b>Начало:</b> {start_str}\n"
-                f"⏳ <b>Окончание:</b> {end_str}\n"
-                f"📦 <b>Трафик:</b> {traffic_str}\n\n"
-                f"🔗 <b>Подписка:</b> {sub_link}\n"
-                "</blockquote>\n"
-            )
+            devices_info = await rm.get_hwid_devices(user_uuid)
+            connected = devices_info.get("total", 0)
+            device_list = devices_info.get("devices", [])
+            devices_str = f"{connected}/{hwid_limit}"
 
-        # =====================================================================
-        #                         БЛОК SPECIAL
-        # =====================================================================
-        caption += "<blockquote>✍️ <b>Обход Whitelists подписка:</b>\n\n"
-
-        if not special_sub:
-            caption += "🚫 <b>Активных подписок не найдено.</b>\n</blockquote>"
-        else:
-            u = special_sub
-
-            start_str = fmt(u.get("createdAt"))
-            end_str = fmt(u.get("expireAt"))
-            used_bytes = u.get("userTraffic", {}).get("usedTrafficBytes", 0)
-            used_gb = to_gb(used_bytes)
-            limit_bytes = u.get("trafficLimitBytes", 0)
-            traffic_str = f"{used_gb} / {to_gb(limit_bytes)} ГБ" if limit_bytes else f"{used_gb} / ∞"
-
-            status_raw = u.get("status", "—").upper()
-            if status_raw == "ACTIVE":
-                status = "🟢 Active"
-            elif status_raw == "EXPIRED":
-                status = "🔴 Expired"
+            # собираем список устройств
+            device_lines = ""
+            if connected > 0:
+                for dev in device_list:
+                    model = dev.get("deviceModel") or "Неизвестное устройство"
+                    platform = dev.get("platform") or "?"
+                    os_ver = dev.get("osVersion") or ""
+                    agent = dev.get("userAgent") or ""
+                    device_lines += f"• [ {model} ({platform} {os_ver}) {agent} ]\n"
             else:
-                status = "⚪️ —"
+                device_lines = "• Нет подключённых устройств\n\n"
 
-            sub_link = u.get("subscriptionUrl") or "—"
-            plan_name = special_plan_name or "Special"
+            sub_url = sub.get("subscriptionUrl") or "—"
 
             caption += (
-                f"💎 <b>Тариф:</b> {plan_name}\n\n"
-                f"📌 <b>Статус:</b> {status}\n"
-                f"🕒 <b>Начало:</b> {start_str}\n"
-                f"⏳ <b>Окончание:</b> {end_str}\n"
-                f"📦 <b>Трафик:</b> {traffic_str}\n\n"
-                f"🔗 <b>Подписка:</b> {sub_link}\n"
-                "</blockquote>"
+                f"<blockquote>"
+                f"📦 <b>Подписка #{i}</b>\n"
+                f"───────────────────────────────\n"
+                f"💎 <b>Тариф:</b> {plan}\n"
+                f"📌 <b>Статус: {status}</b>\n"
+                f"───────────────────────────────\n"
+                f"📱 <b>Устройства:</b> {devices_str}\n\n"
+                f"{device_lines}"
+                f"───────────────────────────────\n"
+                f"📦 <b>Трафик:</b> {traffic_str}\n"
+                f"🕒 <b>Начало:</b> {start}\n"
+                f"⏳ <b>Окончание:</b> {end}\n"
+                f"───────────────────────────────\n"
+                f"🔗 <b>Ссылка-ключ:</b> {sub_url}\n"
+                f"───────────────────────────────\n"
+                f"</blockquote>\n"
             )
 
     photo = FSInputFile("./assets/profile_knight.jpg")
+
     await callback.message.edit_media(
         media=InputMediaPhoto(media=photo, caption=caption, parse_mode="HTML"),
         reply_markup=kb.profile_logic
     )
-
-
 
 # Получение пробной подписки
 @router.callback_query(F.data == 'key')
@@ -926,8 +907,18 @@ async def devices_set(callback: CallbackQuery):
 
     min_value = invoice["min_value"]
     max_value = invoice["max_value"]
+    step = invoice["step"]
 
-    new_value = max(min_value, min(max_value, new_value))
+    # --- Проверка выхода за пределы ---
+    if new_value < min_value:
+        await callback.answer(f"❗ Минимум {min_value} устройство")
+        return
+
+    if new_value > max_value:
+        await callback.answer(f"❗ Максимум {max_value} устройств")
+        return
+
+    # --- Обновляем ---
     invoice["devices"] = new_value
 
     await callback.message.edit_reply_markup(
@@ -936,7 +927,7 @@ async def devices_set(callback: CallbackQuery):
             current=new_value,
             min_value=min_value,
             max_value=max_value,
-            step=invoice["step"]
+            step=step
         )
     )
 
@@ -1266,6 +1257,15 @@ async def check_crypto_payment(callback: CallbackQuery):
         tg_id, tariff_code, tariff["days"], hwid_limit
     )
 
+    await handler["extend"](
+        tg_id=tg_id,
+        plan_name=tariff_code,
+        amount=tariff["price"],
+        days=tariff["days"],
+        uuid=user_data["uuid"],
+        devices_extra=devices_extra
+    )
+
     sub_link = (
         f"https://sub.grdguard.xyz/{user_data.get('shortUuid')}"
         if user_data.get("shortUuid")
@@ -1283,7 +1283,7 @@ async def check_crypto_payment(callback: CallbackQuery):
             f"⏳ <b>Окончание:</b> {end_date:%Y-%m-%d %H:%M}\n"
             f"🌐 <b>Трафик:</b> {tariff['traffic']}\n\n"
             f"📦 <b>Подписка:</b> {sub_link}</blockquote>\n\n"
-            f"<i>Инструкции по подключению — в разделе “Помощь💬”</i>"
+            f"<i>Чтобы воспользоваться VPN нажмите '🔗 Подключить VPN' и следуйте инструкциям</i>"
         )
     else:
         new_end = datetime.fromisoformat(user_data["expire_at"])
@@ -1297,7 +1297,7 @@ async def check_crypto_payment(callback: CallbackQuery):
 
     await callback.message.edit_media(
         media=InputMediaPhoto(media=photo, caption=caption_text, parse_mode="HTML"),
-        reply_markup=kb.back_to_start
+        reply_markup=kb.subscription_result_keyboard(sub_link)
     )
 
     username = callback.from_user.username or f"user{tg_id}"
@@ -1432,6 +1432,11 @@ async def check_yookassa_payment(callback: CallbackQuery):
         devices_extra=devices_extra
     )
 
+    sub_link = (
+        f"https://sub.grdguard.xyz/{user_data.get('shortUuid')}"
+        if user_data.get("shortUuid")
+        else "—"
+    )
     photo = FSInputFile(handler["photo"])
 
     await hp.reset_user_discount(tg_id)
@@ -1443,8 +1448,8 @@ async def check_yookassa_payment(callback: CallbackQuery):
             f"🕒 <b>Начало:</b> {start_date:%Y-%m-%d %H:%M}\n"
             f"⏳ <b>Окончание:</b> {end_date:%Y-%m-%d %H:%M}\n"
             f"🌐 <b>Трафик:</b> {tariff['traffic']}\n\n"
-            f"📦 <b>Подписка:</b> https://sub.grdguard.xyz/{user_data.get('shortUuid', '—')}</blockquote>\n\n"
-            f"<i>Инструкции по подключению — в разделе “Помощь💬”</i>"
+            f"📦 <b>Подписка:</b> {sub_link}</blockquote>\n\n"
+            f"<i>Чтобы воспользоваться VPN нажмите '🔗 Подключить VPN' и следуйте инструкциям</i>"
         )
     else:
         new_end = datetime.fromisoformat(user_data["expire_at"])
@@ -1459,7 +1464,7 @@ async def check_yookassa_payment(callback: CallbackQuery):
     # ---- Отправляем ----
     await callback.message.edit_media(
         media=InputMediaPhoto(media=photo, caption=caption_text, parse_mode="HTML"),
-        reply_markup=kb.back_to_start
+        reply_markup=kb.subscription_result_keyboard(sub_link)
     )
 
     # ---- Уведомление ----
@@ -1578,6 +1583,16 @@ async def check_rp_payment(callback: CallbackQuery):
     user_data = await handler["create_user"](
         tg_id, tariff_code, tariff["days"], hwid_limit
     )
+
+    await handler["extend"](
+        tg_id=tg_id,
+        plan_name=tariff_code,
+        amount=tariff["price"],
+        days=tariff["days"],
+        uuid=user_data["uuid"],
+        devices_extra=devices_extra
+    )
+
     photo = FSInputFile(handler["photo"])
     sub_link = (
         f"https://sub.grdguard.xyz/{user_data.get('shortUuid')}"
@@ -1593,7 +1608,7 @@ async def check_rp_payment(callback: CallbackQuery):
             f"⏳ <b>Окончание:</b> {end_date:%Y-%m-%d %H:%M}\n"
             f"🌐 <b>Трафик:</b> {tariff['traffic']}\n\n"
             f"📦 <b>Подписка:</b> {sub_link}</blockquote>\n\n"
-            f"<i>Инструкции по подключению — в разделе “Помощь💬”</i>"
+            f"<i>Чтобы воспользоваться VPN нажмите '🔗 Подключить VPN' и следуйте инструкциям</i>"
         )
     else:
         new_end = datetime.fromisoformat(user_data["expire_at"])
@@ -1608,7 +1623,7 @@ async def check_rp_payment(callback: CallbackQuery):
     # --- Ответ ---
     await callback.message.edit_media(
         media=InputMediaPhoto(media=photo, caption=caption, parse_mode="HTML"),
-        reply_markup=kb.back_to_start
+        reply_markup=kb.subscription_result_keyboard(sub_link)
     )
 
     await pn.notify_purchase(

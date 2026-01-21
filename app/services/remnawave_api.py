@@ -537,6 +537,29 @@ async def get_user_by_telegram_id(telegram_id: int) -> dict | None:
         "users": users
     }
 
+async def get_hwid_devices(user_uuid: str) -> dict:
+    url = f"{REMNAWAVE_BASE_URL}/hwid/devices/{user_uuid}"
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            r = await client.get(
+                url,
+                headers={"Authorization": f"Bearer {REMNAWAVE_TOKEN}"}
+            )
+
+            if r.status_code != 200:
+                return {"total": 0, "devices": []}
+
+            resp = r.json().get("response", {})
+
+            return {
+                "total": resp.get("total", 0),
+                "devices": resp.get("devices", [])
+            }
+
+        except Exception:
+            return {"total": 0, "devices": []}
+
 # Получаем всех пользователей
 async def get_all_users() -> List[Dict]:
     all_users = []
