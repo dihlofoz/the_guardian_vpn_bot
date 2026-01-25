@@ -18,16 +18,30 @@ import app.helpers as hp
 from app.services import cryptobot_api as cb
 from app.services import yookassa_api as yoo
 from app.services import remnawave_api as rm
-from config import BOT_USERNAME, TARIFFS, ADMIN_IDS, DEFAULT_DEVICES, DEVICES_MAX, DEVICES_MIN, DEVICES_STEP, SPECIAL_TARIFFS, MULTI_TARIFFS
+from config import BOT_USERNAME, TARIFFS, ADMIN_IDS, DEFAULT_DEVICES, DEVICES_MAX, DEVICES_MIN, DEVICES_STEP, SPECIAL_TARIFFS, MULTI_TARIFFS, TARIFF_MAP
 from app.states import CreatePromo, PromoActivate, ConvertRPStates
 from app.tasks import pay_notify as pn
 
 return_url = 'https://t.me/GrdVPNbot'
 router = Router()
 
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Отдел необходимых для работы обработчиков функций и не только
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
 ACTIVE_INVOICES = {}
 TEMP_MAILING = {}
 user_device_choice = {}
+SESSION = {}
+
+def fmt_date(d: str | None):
+    if not d:
+        return "—"
+    try:
+        return datetime.fromisoformat(d.replace("Z", "+00:00")).strftime("%d.%m.%Y")
+    except:
+        return "—"
+    
 TARIFF_HANDLERS = {
     "SPECIAL": {
         "create_user": rm.create_special_paid_user,
@@ -52,6 +66,10 @@ def detect_group(tariff_code: str) -> str:
     if tariff_code in MULTI_TARIFFS:
         return "MULTI"
     return "BASE"
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+# Отдел необходимых для работы обработчиков функций и не только
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 # Начало работы бота
 @router.message(CommandStart())
@@ -371,15 +389,24 @@ async def profile(callback: CallbackQuery):
 
         def to_gb(b):
             return round(b / 1024**3, 2)
-
+        
         def clean_plan(desc: str | None):
             if not desc:
                 return "—"
             parts = desc.split()
-            # Убираем Paid/Special/Multi
-            if parts[0] in ("Paid", "Special", "Multi"):
-                return " ".join(parts[1:]) or parts[0]
+            service_prefixes = ("Paid", "Special", "Multi", "Trial")
+
+            if parts[0] in service_prefixes:
+                base = " ".join(parts[1:]) or parts[0]
+
+            # Если Trial → допишем " (Пробный)"
+                if parts[0] == "Trial":
+                    return f"{base} (Пробный)"
+
+                return base
+
             return desc
+
 
         # Генерация UI для каждой подписки
         for i, sub in enumerate(subscriptions, start=1):
@@ -453,6 +480,199 @@ async def profile(callback: CallbackQuery):
         media=InputMediaPhoto(media=photo, caption=caption, parse_mode="HTML"),
         reply_markup=kb.profile_logic
     )
+
+# Управление подписками
+@router.callback_query(F.data == 'paneluprsubs')
+async def help(callback: CallbackQuery):
+    await callback.answer('Панель управления')
+
+    photo_path = "./assets/subs_cust_knight.jpg"
+    photo = FSInputFile(photo_path)
+
+    await callback.message.edit_media(
+        media=InputMediaPhoto(
+            media=photo,
+            caption=(
+                "⚙️ <b>Ты попал в панель управления подписками.</b>\n\n"
+                "<blockquote> <b>Здесь ты можешь:</b>\n"
+                " <i>|+| 🛠️ Удалять/увеличивать устройства в подписках\n"
+                " |+| ➕ Отдельно докупать ГБ к подпискам с ограниченным трафиком\n"
+                " |+| ➕ Докупить небольшое кол-во дней по необходимости</i></blockquote>\n\n"
+                "<i>Для старта выберите свой тип подписки</i> 👇"
+            ),
+            parse_mode="HTML"
+        ),
+        reply_markup=kb.manage_choose_tariff()
+    )
+
+@router.callback_query(F.data.startswith("manage:tariff:"))
+async def panel_select_tariff(callback: CallbackQuery):
+    await callback.answer()
+
+    tg_id = callback.from_user.id
+    tariff = callback.data.split(":")[-1]  # paid / special / multi
+
+    user_data = await rm.get_user_by_telegram_id(tg_id)
+    subs = user_data.get("users", [])
+
+    # description начинается с Paid/Special/Multi → приводим к нижнему регистру
+    def is_tariff(s, name):
+        desc = (s.get("description") or "").lower().strip()
+        first = desc.split()[0] if desc else ""
+        return first == name
+    
+    if tariff == "paid":
+        filtered = [s for s in subs if is_tariff(s, "paid")]
+        photo_path = "./assets/base_vpn_knight.jpg"
+    elif tariff == "special":
+        filtered = [s for s in subs if is_tariff(s, "special")]
+    else:
+        filtered = [s for s in subs if is_tariff(s, "multi")]
+
+    if not filtered:
+        await callback.answer("Подписки такого типа нет ❌", show_alert=True)
+        return
+
+    # одна подписка на тип
+    sub = filtered[0]
+    sub_uuid = sub["uuid"]
+
+    SESSION[tg_id] = {"subscription": sub}
+
+    # получаем актуальные устройства
+    hw = await rm.get_hwid_devices(sub_uuid)
+    devices = hw.get("devices") or hw.get("response", {}).get("devices", [])
+    SESSION[tg_id]["devices"] = devices
+
+    # форматируем данные
+    plan = sub.get("description") or "—"
+    start_fmt = fmt_date(sub.get("createdAt"))
+    end_fmt = fmt_date(sub.get("expireAt"))
+    limit = sub.get("hwidDeviceLimit", 0)
+
+    devices_str = f"{len(devices)}/{limit}"
+
+    photo = FSInputFile(photo_path)
+
+    # список устройств
+    if devices:
+        device_lines = ""
+        for dev in devices:
+            model = dev.get("deviceModel") or "Unknown"
+            platform = dev.get("platform") or "?"
+            os_ver = dev.get("osVersion") or ""
+            agent = dev.get("userAgent") or ""
+            device_lines += f"• {model} ({platform} {os_ver}) {agent}\n"
+    else:
+        device_lines = "• Нет подключённых устройств\n"
+
+    caption = (
+        f"<b>🛠️ Управление подпиской</b>\n\n"
+        f"<blockquote>💎 <b>Тариф:</b> {plan}\n"
+        f"───────────────────────────────\n"
+        f"📱 <b>Устройства:</b> <b>{devices_str}</b>\n\n"
+        f"{device_lines}"
+        f"───────────────────────────────\n"
+        f"🕒 <b>Начало:</b> {start_fmt}\n"
+        f"⏳ <b>Окончание:</b> {end_fmt}\n"
+        f"───────────────────────────────</blockquote>\n"
+    )
+
+    await callback.message.edit_media(
+        media=InputMediaPhoto(
+            media=photo,
+            caption=caption,
+            parse_mode="HTML"
+        ),
+        reply_markup=kb.manage_devices_keyboard(devices)
+    )
+
+
+# Удаление устройства из подписки
+@router.callback_query(F.data.startswith("manage:dev:"))
+async def remove_device(callback: CallbackQuery):
+    tg_id = callback.from_user.id
+
+    if tg_id not in SESSION or "subscription" not in SESSION[tg_id]:
+        await callback.answer("Сессия истекла. Открой панель ещё раз ❗", show_alert=True)
+        return
+
+    index = int(callback.data.split(":")[-1])
+
+    sub = SESSION[tg_id]["subscription"]
+    sub_uuid = sub["uuid"]
+    short_uuid = sub["shortUuid"]
+
+    # всегда актуальные устройства
+    hw_current = await rm.get_hwid_devices(sub_uuid)
+    devices = hw_current.get("devices") or hw_current.get("response", {}).get("devices", [])
+
+    if index >= len(devices):
+        await callback.message.edit_reply_markup(
+            reply_markup=kb.manage_devices_keyboard(devices)
+        )
+        return
+
+    device = devices[index]
+    hwid = device["hwid"]
+
+    # --- удаление устройства ---
+    ok = await rm.delete_hwid_device(sub_uuid, hwid)
+    if not ok:
+        await callback.answer("Ошибка при удалении устройства ❌", show_alert=True)
+        return
+    # уведомление пользователю
+    await callback.answer("Устройство успешно удалено ✔️")
+
+    # --- revokeOnlyPasswords ---
+    await rm.revoke_subscription_passwords(
+        user_uuid=sub_uuid,
+        short_uuid=short_uuid
+    )
+
+    # повторный запрос (обновление)
+    hw_new = await rm.get_hwid_devices(sub_uuid)
+    devices_new = hw_new.get("devices") or hw_new.get("response", {}).get("devices", [])
+    SESSION[tg_id]["devices"] = devices_new
+
+    # пересобираем caption полностью (корректнее, чем склеивать)
+    plan = sub.get("description") or "—"
+    start_fmt = fmt_date(sub.get("createdAt"))
+    end_fmt = fmt_date(sub.get("expireAt"))
+    limit = sub.get("hwidDeviceLimit", 0)
+
+    devices_str = f"{len(devices_new)}/{limit}"
+
+    # список устройств
+    if devices_new:
+        device_lines = ""
+        for dev in devices_new:
+            model = dev.get("deviceModel") or "Unknown"
+            platform = dev.get("platform") or "?"
+            os_ver = dev.get("osVersion") or ""
+            agent = dev.get("userAgent") or ""
+            device_lines += f"• {model} ({platform} {os_ver}) {agent}\n"
+    else:
+        device_lines = "• Нет подключённых устройств\n"
+
+    new_caption = (
+        f"<b>🛠️ Управление подпиской</b>\n\n"
+        f"<blockquote>💎 <b>Тариф:</b> {plan}\n"
+        f"───────────────────────────────\n"
+        f"📱 <b>Устройства:</b> <b>{devices_str}</b>\n\n"
+        f"{device_lines}"
+        f"───────────────────────────────\n"
+        f"🕒 <b>Начало:</b> {start_fmt}\n"
+        f"⏳ <b>Окончание:</b> {end_fmt}\n"
+        f"───────────────────────────────</blockquote>\n"
+    )
+
+    await callback.message.edit_caption(
+        caption=new_caption,
+        reply_markup=kb.manage_devices_keyboard(devices_new),
+        parse_mode="HTML"
+    )
+
 
 # Получение пробной подписки
 @router.callback_query(F.data == 'key')

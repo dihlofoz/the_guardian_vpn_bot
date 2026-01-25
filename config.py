@@ -96,6 +96,12 @@ BASE_TARIFFS = {
     "12 месяцев"
 }
 
+TARIFF_MAP = {
+    "paid": "Paid",
+    "special": "Special",
+    "multi": "Multi"
+}
+
 # Юkassa
 ACCOUNT_ID='1189888'
 SECRET_KEY='test_2MphmmsqWsXlh7LmAOFNre32HNr6pov9V8ZenYkB-L0'

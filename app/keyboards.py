@@ -189,6 +189,45 @@ profile_logic = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='← Назад', callback_data='back_main')]
 ])
 
+def manage_choose_tariff():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Базовый VPN 🪴", callback_data="manage:tariff:paid"),
+        InlineKeyboardButton(text="Обход Whitelists 🥷", callback_data="manage:tariff:special")],
+        [InlineKeyboardButton(text="Мульти VPN 💥", callback_data="manage:tariff:multi")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="profile")]
+    ])
+
+
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+
+def manage_devices_keyboard(devices: list):
+    kb = []
+
+    if devices:
+        for i, dev in enumerate(devices):
+            model = dev.get("deviceModel") or "Unknown"
+            platform = dev.get("platform") or "?"
+            os_ver = dev.get("osVersion") or ""
+
+            kb.append([
+                InlineKeyboardButton(
+                    text=f"{i+1}) ❌ {model} ({platform} {os_ver})",
+                    callback_data=f"manage:dev:{i}"
+                )
+            ])
+    else:
+        kb.append([
+            InlineKeyboardButton(
+                text="Нет устройств ❌",
+                callback_data="noop"
+            )
+        ])
+
+    kb.append([InlineKeyboardButton(text="🔙 Назад", callback_data="paneluprsubs")])
+
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
 subscribe_check = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="📢 Перейти в канал", url="https://t.me/grdVPNnews")],
     [InlineKeyboardButton(text="✅ Проверить подписку", callback_data="check_subscription")]

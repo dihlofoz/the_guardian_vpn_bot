@@ -463,7 +463,7 @@ async def create_multi_paid_user(tg_id: int, tariff_code: str, days: int, hwid_l
                 "status": "ACTIVE",
                 "expireAt": expire_at_str,
                 "telegramId": tg_id,
-                "email": f"{base_username}@special.remna",
+                "email": f"{base_username}@multi.remna",
                 "hwidDeviceLimit": hwid_limit,
                 "activeInternalSquads": [SQUAD_ID_TRIAL],
                 "description": f"Multi {tariff_code}",
@@ -559,6 +559,41 @@ async def get_hwid_devices(user_uuid: str) -> dict:
 
         except Exception:
             return {"total": 0, "devices": []}
+        
+async def delete_hwid_device(user_uuid: str, hwid: str) -> bool:
+    url = f"{REMNAWAVE_BASE_URL}/hwid/devices/delete"
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(
+            url,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {REMNAWAVE_TOKEN}"
+            },
+            json={
+                "userUuid": user_uuid,
+                "hwid": hwid
+            }
+        )
+
+        return r.status_code == 200
+
+async def revoke_subscription_passwords(user_uuid: str, short_uuid: str) -> bool:
+    url = f"{REMNAWAVE_BASE_URL}/users/{user_uuid}/actions/revoke"
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(
+            url,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {REMNAWAVE_TOKEN}"
+            },
+            json={
+                "revokeOnlyPasswords": True,        # <---- ВАЖНО
+                "shortUuid": short_uuid
+            }
+        )
+
+        return r.status_code == 200
 
 # Получаем всех пользователей
 async def get_all_users() -> List[Dict]:
