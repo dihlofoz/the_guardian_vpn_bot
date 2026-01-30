@@ -488,7 +488,7 @@ async def update_paid_subscription_with_rp_days(tg_id: int):
         return True
 
 # Удаление RP (списание с баланса)
-async def remove_rp(tg_id: int, amount: int, reason: str = None):
+async def remove_rp(tg_id: int, amount: int):
     async with async_session_maker() as session:
         async with session.begin():
             user = await session.scalar(

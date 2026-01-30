@@ -135,7 +135,7 @@ def payment_methods(invoice: dict):
 
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 ЮKassa", callback_data=f'pay:yoo:{tariff_code}'),
-        InlineKeyboardButton(text="💰 CryptoBot", callback_data=f'pay:crypto:{tariff_code}')],
+        InlineKeyboardButton(text="🪙 CryptoBot", callback_data=f'pay:crypto:{tariff_code}')],
         [InlineKeyboardButton(text='🛡 RP (Referral Points)', callback_data=f'pay:rp:{tariff_code}')],
         [InlineKeyboardButton(text='❌ Отмена', callback_data=f'cancel:{user_id}')],
     ])
@@ -194,7 +194,7 @@ def manage_choose_tariff():
         [InlineKeyboardButton(text="Базовый VPN 🪴", callback_data="manage:tariff:paid"),
         InlineKeyboardButton(text="Обход Whitelists 🥷", callback_data="manage:tariff:special")],
         [InlineKeyboardButton(text="Мульти VPN 💥", callback_data="manage:tariff:multi")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="profile")]
+        [InlineKeyboardButton(text="← Назад", callback_data="profile")]
     ])
 
 
@@ -208,11 +208,10 @@ def manage_devices_keyboard(devices: list):
         for i, dev in enumerate(devices):
             model = dev.get("deviceModel") or "Unknown"
             platform = dev.get("platform") or "?"
-            os_ver = dev.get("osVersion") or ""
 
             kb.append([
                 InlineKeyboardButton(
-                    text=f"{i+1}) ❌ {model} ({platform} {os_ver})",
+                    text=f"{i+1}) ❌ {model} ({platform})",
                     callback_data=f"manage:dev:{i}"
                 )
             ])
@@ -224,9 +223,113 @@ def manage_devices_keyboard(devices: list):
             )
         ])
 
-    kb.append([InlineKeyboardButton(text="🔙 Назад", callback_data="paneluprsubs")])
+    # ───── ДОБАВЛЕННЫЕ КНОПКИ ─────
+    kb.append([InlineKeyboardButton(text="📱 Добавить устройство", callback_data="manage:add_device")])
+    kb.append([InlineKeyboardButton(text="← Назад", callback_data="paneluprsubs")])
 
     return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def add_device_selector_keyboard(user_id: int, current: int, min_value: int, max_value: int, step: int = 1):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="➖",
+                callback_data=f"adddev:{user_id}:set:{current - step}"
+            ),
+            InlineKeyboardButton(
+                text=f"{current} 📱",
+                callback_data="noop"
+            ),
+            InlineKeyboardButton(
+                text="➕",
+                callback_data=f"adddev:{user_id}:set:{current + step}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="Продолжить →",
+                callback_data=f"adddev:{user_id}:next"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="← Назад",
+                callback_data="adddev:back"
+            )
+        ]
+    ])
+
+def add_device_confirm_keyboard():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="💳 ЮKassa",
+                    callback_data="adddev:pay:yoo"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🪙 CryptoBot",
+                    callback_data="adddev:pay:crypto"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🛡 RP (Referral Points)",
+                    callback_data="adddev:pay:rp"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="← Назад",
+                    callback_data="adddev:back:selector"
+                )
+            ]
+        ]
+    )
+
+def add_device_confirm_keyboard1(payment_url: str | None = None) -> InlineKeyboardMarkup:
+    keyboard = []
+
+    # Кнопка оплаты (URL из YooKassa)
+    if payment_url:
+        keyboard.append([
+            InlineKeyboardButton(
+                text="💳 Оплатить через Юkassa",
+                url=payment_url
+            )
+        ])
+
+    # Назад к селектору устройств
+    keyboard.append([
+        InlineKeyboardButton(
+            text="❌ Отмена",
+            callback_data="adddev:back"
+        )
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+def crypto_pay_keyboard(pay_url: str):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="🪙 Оплатить через CryptoBot",
+                url=pay_url
+            )],
+            [InlineKeyboardButton(
+                text="❌ Отмена",
+                callback_data="adddev:back"
+            )]
+        ]
+    )
+
+def addev_rp_confirm_keyboard(amount_rp: int):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"✅ Подтвердить оплату ({amount_rp} RP)", callback_data=f"addev:rp:{amount_rp}")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="adddev:back")]
+    ])
 
 subscribe_check = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="📢 Перейти в канал", url="https://t.me/grdVPNnews")],

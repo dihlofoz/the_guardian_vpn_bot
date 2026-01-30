@@ -143,7 +143,7 @@ async def get_short_uuid_by_telegram_multi(telegram_id: int) -> str:
     # Если SPECIAL пользователи не найдены
     raise Exception(f"У пользователя с Telegram ID {telegram_id} нет MULTI-подписки")
  
-# Создаёт платного пользователя через Remnawave API
+# Создание дефолт ВПН подписки
 async def create_paid_user(tg_id: int, tariff_code: str, days: int, hwid_limit: int):
     safe_tariff_code = re.sub(r'[^A-Za-z0-9_-]', '_', tariff_code)
     base_username = f"paid_{tg_id}_{safe_tariff_code}"
@@ -170,7 +170,8 @@ async def create_paid_user(tg_id: int, tariff_code: str, days: int, hwid_limit: 
                 "email": f"{base_username}@paid.remna",
                 "description": f"Paid {tariff_code}",
                 "hwidDeviceLimit": hwid_limit,
-                "activeInternalSquads": [SQUAD_ID]
+                "activeInternalSquads": [SQUAD_ID],
+                "trafficLimitStrategy": "MONTH"
             }
 
             response = await client.patch(
@@ -213,7 +214,8 @@ async def create_paid_user(tg_id: int, tariff_code: str, days: int, hwid_limit: 
                 "email": f"{base_username}@paid.remna",
                 "hwidDeviceLimit": hwid_limit,
                 "activeInternalSquads": [SQUAD_ID],
-                "description": f"Paid {tariff_code}"
+                "description": f"Paid {tariff_code}",
+                "trafficLimitStrategy": "MONTH"
             }
 
             response = await client.post(REMNA_API_URL, headers=headers, json=payload)
@@ -241,7 +243,8 @@ async def create_paid_user(tg_id: int, tariff_code: str, days: int, hwid_limit: 
                 "shortUuid": short_uuid,
                 "expire_at": expire_at_str
             }
-        
+
+# Создания подписки ОБХОД      
 async def create_special_paid_user(tg_id: int, tariff_code: str, days: int, hwid_limit: int):
     safe_tariff_code = re.sub(r'[^A-Za-z0-9_-]', '_', tariff_code)
     base_username = f"special_{tg_id}_{safe_tariff_code}"
@@ -294,7 +297,7 @@ async def create_special_paid_user(tg_id: int, tariff_code: str, days: int, hwid
                 "hwidDeviceLimit": hwid_limit,
                 "activeInternalSquads": [SECOND_SQUAD_ID],
                 "trafficLimitBytes": new_limit,
-                "trafficLimitStrategy": "NO_RESET"
+                "trafficLimitStrategy": "MONTH"
             }
 
             # PATCH в панель
@@ -341,7 +344,7 @@ async def create_special_paid_user(tg_id: int, tariff_code: str, days: int, hwid
                 "activeInternalSquads": [SECOND_SQUAD_ID],
                 "description": f"Special {tariff_code}",
                 "trafficLimitBytes": traffic_limit_bytes,
-                "trafficLimitStrategy": "NO_RESET"
+                "trafficLimitStrategy": "MONTH"
             }
 
             response = await client.post(REMNA_API_URL, headers=headers, json=payload)
@@ -421,7 +424,7 @@ async def create_multi_paid_user(tg_id: int, tariff_code: str, days: int, hwid_l
                 "hwidDeviceLimit": hwid_limit,
                 "activeInternalSquads": [SQUAD_ID_TRIAL],
                 "trafficLimitBytes": new_limit,
-                "trafficLimitStrategy": "NO_RESET"
+                "trafficLimitStrategy": "MONTH"
             }
 
             # PATCH в панель
@@ -468,7 +471,7 @@ async def create_multi_paid_user(tg_id: int, tariff_code: str, days: int, hwid_l
                 "activeInternalSquads": [SQUAD_ID_TRIAL],
                 "description": f"Multi {tariff_code}",
                 "trafficLimitBytes": traffic_limit_bytes,
-                "trafficLimitStrategy": "NO_RESET"
+                "trafficLimitStrategy": "MONTH"
             }
 
             response = await client.post(REMNA_API_URL, headers=headers, json=payload)
@@ -495,6 +498,40 @@ async def create_multi_paid_user(tg_id: int, tariff_code: str, days: int, hwid_l
                 "shortUuid": short_uuid,
                 "expire_at": expire_at_str
             }
+        
+async def update_subscription_hwid_limit(
+    *,
+    sub_uuid: str,
+    hwid_limit: int,
+):
+    if not sub_uuid:
+        raise ValueError("subscription_uuid is required")
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {REMNAWAVE_TOKEN}",
+    }
+
+    payload = {
+        "uuid": sub_uuid,
+        "status": "ACTIVE",
+        "hwidDeviceLimit": hwid_limit,
+    }
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.patch(
+            REMNA_API_URL,
+            headers=headers,
+            json=payload,
+        )
+
+    if response.status_code not in (200, 201, 204):
+        raise Exception(
+            f"Remnawave PATCH failed: {response.status_code} - {response.text}"
+        )
+
+    return True
+
 
 # Возвращает информацию о пользователе Remnawave по Telegram ID или None
 async def get_user_by_telegram_id(telegram_id: int) -> dict | None:

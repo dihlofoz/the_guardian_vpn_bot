@@ -1,7 +1,7 @@
 import uuid
 import yookassa
 from yookassa import Payment
-from config import SECRET_KEY, ACCOUNT_ID, BASE_URL_YOO  # если BASE_URL_YOO не используется — можно убрать
+from config import SECRET_KEY, ACCOUNT_ID
 
 # Настраиваем SDK
 yookassa.Configuration.account_id = ACCOUNT_ID
@@ -60,6 +60,65 @@ def create_invoice(amount: float, tg_id: int, tariff_code: str, return_url: str)
 
     except Exception as e:
         print(f"❌ Ошибка при создании платежа в YooKassa: {e}")
+        return None, None
+
+def create_add_device_invoice(
+    amount: float,
+    tg_id: int,
+    old_limit: int,
+    new_limit: int,
+    return_url: str
+):
+    idempotence_key = str(uuid.uuid4())
+    email = "no-email@example.com"
+
+    description = f"Добавление устройств: {old_limit} → {new_limit}"
+
+    metadata = {
+        "chat_id": tg_id,
+        "action": "add_device",
+        "old_limit": old_limit,
+        "new_limit": new_limit
+    }
+
+    try:
+        payment = Payment.create(
+            {
+                "amount": {
+                    "value": f"{amount:.2f}",
+                    "currency": "RUB"
+                },
+                "confirmation": {
+                    "type": "redirect",
+                    "return_url": return_url
+                },
+                "capture": True,
+                "description": description,
+                "metadata": metadata,
+                "receipt": {
+                    "customer": {"email": email},
+                    "items": [
+                        {
+                            "description": description,
+                            "quantity": "1",
+                            "amount": {
+                                "value": f"{amount:.2f}",
+                                "currency": "RUB"
+                            },
+                            "vat_code": "1",
+                            "payment_mode": "full_prepayment",
+                            "payment_subject": "service"
+                        }
+                    ]
+                }
+            },
+            idempotence_key
+        )
+
+        return payment.confirmation.confirmation_url, payment.id
+
+    except Exception as e:
+        print(f"❌ YooKassa create error: {e}")
         return None, None
 
 

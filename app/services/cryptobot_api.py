@@ -33,6 +33,40 @@ def create_invoice(amount_usd: float, tg_id: int, tariff_code: str):
 
     return resp["result"]  # содержит поля id, status, pay_url и т.д.
 
+def create_add_device_crypto_invoice(
+    *,
+    amount_usd: float,
+    tg_id: int,
+    new_limit: int,
+):
+    url = BASE_URL + "createInvoice"
+
+    headers = {
+        "Crypto-Pay-API-Token": CRYPTOBOT_TOKEN,
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "asset": "USDT",
+        "amount": round(amount_usd, 2),
+        "description": f"Add devices → {new_limit}",
+        "payload": f"add_device:{tg_id}:{new_limit}",
+        "allow_comments": False,
+        "allow_anonymous": False
+    }
+
+    try:
+        r = requests.post(url, headers=headers, json=data, timeout=10)
+        resp = r.json()
+    except Exception as e:
+        print("❌ CryptoBot invoice error:", e)
+        return None
+
+    if not resp.get("ok"):
+        return None
+
+    return resp["result"]  # id, pay_url, status
+
 # 🔍 Проверка инвойса
 def check_crypto_invoice(invoice_id: str):
     url = f"{BASE_URL}getInvoices"

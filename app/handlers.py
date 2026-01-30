@@ -7,7 +7,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram import types
 from datetime import datetime, timedelta
 import requests
-import time 
+import time
+from datetime import datetime, timezone
 import random, string
 import asyncio
 import math
@@ -18,20 +19,19 @@ import app.helpers as hp
 from app.services import cryptobot_api as cb
 from app.services import yookassa_api as yoo
 from app.services import remnawave_api as rm
-from config import BOT_USERNAME, TARIFFS, ADMIN_IDS, DEFAULT_DEVICES, DEVICES_MAX, DEVICES_MIN, DEVICES_STEP, SPECIAL_TARIFFS, MULTI_TARIFFS, TARIFF_MAP
+from config import BOT_USERNAME, TARIFFS, ADMIN_IDS, DEFAULT_DEVICES, DEVICES_MAX, DEVICES_MIN, DEVICES_STEP, SPECIAL_TARIFFS, MULTI_TARIFFS, PRICE_PER_DEVICE
 from app.states import CreatePromo, PromoActivate, ConvertRPStates
 from app.tasks import pay_notify as pn
 
 return_url = 'https://t.me/GrdVPNbot'
 router = Router()
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-# Отдел необходимых для работы обработчиков функций и не только
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Отдел необходимых для работы обработчиков функций и временных хранилищ
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 ACTIVE_INVOICES = {}
 TEMP_MAILING = {}
-user_device_choice = {}
 SESSION = {}
 
 def fmt_date(d: str | None):
@@ -42,21 +42,41 @@ def fmt_date(d: str | None):
     except:
         return "—"
     
+def to_gb(b):
+    return round(b / 1024**3, 2)
+
+def clean_plan(desc: str | None):
+            if not desc:
+                return "—"
+            parts = desc.split()
+            service_prefixes = ("Paid", "Special", "Multi", "Trial")
+
+            if parts[0] in service_prefixes:
+                base = " ".join(parts[1:]) or parts[0]
+
+            # Если Trial → допишем " (Пробный)"
+                if parts[0] == "Trial":
+                    return f"{base} (Пробный)"
+
+                return base
+
+            return desc
+    
 TARIFF_HANDLERS = {
     "SPECIAL": {
         "create_user": rm.create_special_paid_user,
         "extend":      hp.add_or_extend_special_subscription,
-        "photo":       "./assets/success2_knight.jpg",
+        "photo":       "./assets/success_knight.jpg",
     },
     "MULTI": {
         "create_user": rm.create_multi_paid_user,
         "extend":      hp.add_or_extend_multi_subscription,
-        "photo":       "./assets/success2_knight.jpg",
+        "photo":       "./assets/success_knight.jpg",
     },
     "BASE": {
         "create_user": rm.create_paid_user,
         "extend":      hp.add_or_extend_base_subscription,
-        "photo":       "./assets/success1_knight.jpg",
+        "photo":       "./assets/success_knight.jpg",
     }
 }
 
@@ -67,9 +87,9 @@ def detect_group(tariff_code: str) -> str:
         return "MULTI"
     return "BASE"
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-# Отдел необходимых для работы обработчиков функций и не только
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Отдел необходимых для работы обработчиков функций и временных хранилищ
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 # Начало работы бота
 @router.message(CommandStart())
@@ -184,7 +204,9 @@ async def help(callback: CallbackQuery):
             media=photo,
             caption=(
                 "✅ <b>Отлично, добро пожаловать в главное меню!</b>\n\n"
-                "<i>Выбери интересующий тебя вариант</i> 👇"
+                "<blockquote><i>Ты находишься в главном меню, откуда можно легко перейти к нужным возможностям.\n"
+                "Если что-то понадобится — просто выбери подходящий пункт.</i></blockquote>\n\n"
+                "<i>Начнём?</i> 👇"
             ),
             parse_mode="HTML"
         ),
@@ -204,6 +226,8 @@ async def existing_user_menu(callback: CallbackQuery):
             media=photo,
             caption=(
                 "🔓 <b>Добро пожаловать обратно!</b>\n\n"
+                "<blockquote><i>Рад, что ты снова с нами!\n"
+                "Все функции бота готовы к использованию.</i></blockquote>\n\n"
                 "<i>Выбери интересующий тебя вариант</i> 👇"
             ),
             parse_mode="HTML"
@@ -379,35 +403,6 @@ async def profile(callback: CallbackQuery):
     else:
         subscriptions = raw_users[:3]
 
-        def fmt_date(d: str | None):
-            if not d:
-                return "—"
-            try:
-                return datetime.fromisoformat(d.replace("Z", "+00:00")).strftime("%d.%m.%Y")
-            except:
-                return "—"
-
-        def to_gb(b):
-            return round(b / 1024**3, 2)
-        
-        def clean_plan(desc: str | None):
-            if not desc:
-                return "—"
-            parts = desc.split()
-            service_prefixes = ("Paid", "Special", "Multi", "Trial")
-
-            if parts[0] in service_prefixes:
-                base = " ".join(parts[1:]) or parts[0]
-
-            # Если Trial → допишем " (Пробный)"
-                if parts[0] == "Trial":
-                    return f"{base} (Пробный)"
-
-                return base
-
-            return desc
-
-
         # Генерация UI для каждой подписки
         for i, sub in enumerate(subscriptions, start=1):
             plan = clean_plan(sub.get("description"))
@@ -486,6 +481,9 @@ async def profile(callback: CallbackQuery):
 async def help(callback: CallbackQuery):
     await callback.answer('Панель управления')
 
+    tg_id = callback.from_user.id
+    SESSION.pop(tg_id, None)
+
     photo_path = "./assets/subs_cust_knight.jpg"
     photo = FSInputFile(photo_path)
 
@@ -507,8 +505,6 @@ async def help(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("manage:tariff:"))
 async def panel_select_tariff(callback: CallbackQuery):
-    await callback.answer()
-
     tg_id = callback.from_user.id
     tariff = callback.data.split(":")[-1]  # paid / special / multi
 
@@ -526,18 +522,22 @@ async def panel_select_tariff(callback: CallbackQuery):
         photo_path = "./assets/base_vpn_knight.jpg"
     elif tariff == "special":
         filtered = [s for s in subs if is_tariff(s, "special")]
+        photo_path = "./assets/obhodwl_vpn_knight.jpg"
     else:
         filtered = [s for s in subs if is_tariff(s, "multi")]
+        photo_path = "./assets/multi_vpn_knight.jpg"
 
     if not filtered:
-        await callback.answer("Подписки такого типа нет ❌", show_alert=True)
+        await callback.answer("Подписки такого типа не найдено ❌", show_alert=True)
         return
 
     # одна подписка на тип
     sub = filtered[0]
     sub_uuid = sub["uuid"]
 
-    SESSION[tg_id] = {"subscription": sub}
+    SESSION.setdefault(tg_id, {})
+    SESSION[tg_id]["tariff_type"] = tariff
+    SESSION[tg_id]["subscription"] = sub
 
     # получаем актуальные устройства
     hw = await rm.get_hwid_devices(sub_uuid)
@@ -545,7 +545,7 @@ async def panel_select_tariff(callback: CallbackQuery):
     SESSION[tg_id]["devices"] = devices
 
     # форматируем данные
-    plan = sub.get("description") or "—"
+    plan = clean_plan(sub.get("description"))
     start_fmt = fmt_date(sub.get("createdAt"))
     end_fmt = fmt_date(sub.get("expireAt"))
     limit = sub.get("hwidDeviceLimit", 0)
@@ -616,15 +616,12 @@ async def remove_device(callback: CallbackQuery):
     device = devices[index]
     hwid = device["hwid"]
 
-    # --- удаление устройства ---
     ok = await rm.delete_hwid_device(sub_uuid, hwid)
     if not ok:
         await callback.answer("Ошибка при удалении устройства ❌", show_alert=True)
         return
-    # уведомление пользователю
-    await callback.answer("Устройство успешно удалено ✔️")
+    await callback.answer("Устройство успешно удалено ✅")
 
-    # --- revokeOnlyPasswords ---
     await rm.revoke_subscription_passwords(
         user_uuid=sub_uuid,
         short_uuid=short_uuid
@@ -673,6 +670,598 @@ async def remove_device(callback: CallbackQuery):
         parse_mode="HTML"
     )
 
+# Добавление устройства внутри панели управления подпиской
+@router.callback_query(F.data == "manage:add_device")
+async def add_device_start(callback: CallbackQuery):
+    tg_id = callback.from_user.id
+
+    if tg_id not in SESSION or "subscription" not in SESSION[tg_id]:
+        return await callback.answer("Сессия истекла, открой панель снова ❗")
+
+    sub = SESSION[tg_id]["subscription"]
+
+    # текущий лимит устройств из подписки
+    current_limit = sub.get("hwidDeviceLimit", 1)
+
+    # нельзя превышать
+    max_value = DEVICES_MAX
+    step = DEVICES_STEP
+
+    # Сохраняем параметры селектора в SESSION
+    SESSION[tg_id]["add_device"] = {
+        "current": current_limit,   # ← ТЕПЕРЬ БЕРЁМ ИЗ subscription
+        "min_value": current_limit, # ← не даём уменьшить
+        "max_value": max_value,
+        "step": 1
+    }
+
+    caption = (
+        "<b>📱 Добавить устройства</b>\n\n"
+        "Выберите новое количество устройств.\n"
+        "<blockquote>ВАЖНО:\n"
+        "• При увеличении количества - доплата пропорционально оставшемуся времени\n"
+        "• Уменьшать текущий лимит нельзя, возврат не производится.</blockquote>"
+    )
+
+    await callback.message.edit_caption(
+        caption=caption,
+        reply_markup=kb.add_device_selector_keyboard(
+        user_id=tg_id,
+        current=current_limit,
+        min_value=current_limit,
+        max_value=max_value,
+        step=step
+    ),
+        parse_mode="HTML"
+    )
+
+    await callback.answer('📱 Добавление устройства')
+
+# Кнопка назад из Добавления устройства
+@router.callback_query(F.data == "adddev:back")
+async def add_device_back(callback: CallbackQuery):
+    tg_id = callback.from_user.id
+
+    session = SESSION.get(tg_id)
+    if not session or "subscription" not in session:
+        return await callback.answer("Сессия истекла ❗", show_alert=True)
+    
+    await callback.answer('Возвращаемся в панель')
+
+    sub = session["subscription"]
+    tariff = session.get("tariff_type")
+
+    # выбираем фото
+    desc = (sub.get("description") or "").lower()
+    if desc.startswith("paid"):
+        photo_path = "./assets/base_vpn_knight.jpg"
+    elif desc.startswith("special"):
+        photo_path = "./assets/obhodwl_vpn_knight.jpg"
+    else:
+        photo_path = "./assets/multi_vpn_knight.jpg"
+
+    sub_uuid = sub["uuid"]
+
+    # получаем актуальные устройства
+    hw = await rm.get_hwid_devices(sub_uuid)
+    devices = hw.get("devices") or hw.get("response", {}).get("devices", [])
+
+    SESSION[tg_id]["devices"] = devices
+
+    limit = sub.get("hwidDeviceLimit", 0)
+    devices_str = f"{len(devices)}/{limit}"
+
+    # список устройств
+    if devices:
+        device_lines = ""
+        for dev in devices:
+            model = dev.get("deviceModel") or "Unknown"
+            platform = dev.get("platform") or "?"
+            os_ver = dev.get("osVersion") or ""
+            agent = dev.get("userAgent") or ""
+            device_lines += f"• {model} ({platform} {os_ver}) {agent}\n"
+    else:
+        device_lines = "• Нет подключённых устройств\n"
+
+    caption = (
+        f"<b>🛠️ Управление подпиской</b>\n\n"
+        f"<blockquote>💎 <b>Тариф:</b> {clean_plan(sub.get('description'))}\n"
+        f"───────────────────────────────\n"
+        f"📱 <b>Устройства:</b> <b>{devices_str}</b>\n\n"
+        f"{device_lines}"
+        f"───────────────────────────────\n"
+        f"🕒 <b>Начало:</b> {fmt_date(sub.get('createdAt'))}\n"
+        f"⏳ <b>Окончание:</b> {fmt_date(sub.get('expireAt'))}\n"
+        f"───────────────────────────────</blockquote>\n"
+    )
+
+    await callback.message.edit_media(
+        InputMediaPhoto(
+            media=FSInputFile(photo_path),
+            caption=caption,
+            parse_mode="HTML",
+        ),
+        reply_markup=kb.manage_devices_keyboard(devices)
+    )
+
+@router.callback_query(F.data.startswith("adddev:") & F.data.contains(":set:"))
+async def add_device_set(callback: CallbackQuery):
+    tg_id = callback.from_user.id
+
+    session = SESSION.get(tg_id)
+    if not session or "add_device" not in session:
+        return await callback.answer(
+            "Сессия истекла, начни заново ❗",
+            show_alert=True
+        )
+
+    try:
+        new_value = int(callback.data.split(":")[-1])
+    except ValueError:
+        return await callback.answer("Некорректное значение ❌")
+
+    data = session["add_device"]
+
+    min_value = data["min_value"]
+    max_value = data["max_value"]
+    step = data["step"] 
+
+    if new_value < min_value:
+        return await callback.answer(
+            f"Текущее минимальное значение в подписке {min_value} ❗"
+        )
+
+    if new_value > max_value:
+        return await callback.answer(
+            f"Максимум {max_value} устройств ❗"
+        )
+
+    # --- обновляем текущее значение ---
+    data["current"] = new_value
+
+    await callback.message.edit_reply_markup(
+        reply_markup=kb.add_device_selector_keyboard(
+            user_id=tg_id,
+            current=new_value,
+            min_value=min_value,
+            max_value=max_value,
+            step=step
+        )
+    )
+
+    await callback.answer()
+
+@router.callback_query(F.data.endswith(":next") & F.data.startswith("adddev:"))
+async def add_device_continue(callback: CallbackQuery):
+    tg_id = callback.from_user.id
+
+    session = SESSION.get(tg_id)
+    if not session or "add_device" not in session or "subscription" not in session:
+        return await callback.answer(
+            "Сессия истекла, начни заново ❗",
+            show_alert=True
+        )
+
+    sub = session["subscription"]
+    add = session["add_device"]
+
+    new_limit = add["current"]
+    old_limit = sub.get("hwidDeviceLimit", 1)
+    dop_devices = new_limit - old_limit
+
+    if new_limit <= old_limit:
+        return await callback.answer("Количество устройств не изменилось ❗")
+
+    # ─── ВРЕМЯ ─────────────────────────────
+    expire_raw = sub.get("expireAt")
+    if not expire_raw:
+        return await callback.answer(
+            "Не удалось определить срок подписки ❗",
+            show_alert=True
+        )
+
+    expire_dt = datetime.fromisoformat(
+        expire_raw.replace("Z", "+00:00")
+    )
+    now_dt = datetime.now(timezone.utc)
+    remaining_days = (expire_dt - now_dt).total_seconds() / 86400
+
+    if remaining_days <= 0:
+        return await callback.answer(
+            "Подписка уже истекла ❗",
+            show_alert=True
+        )
+
+    # ─── ЦЕНА ──────────────────────────────
+    price = ((remaining_days / 30) * 39) * dop_devices
+    total_price = max(1, math.ceil(price))
+
+    add["payment"] = {
+        "provider": None,
+        "amount": total_price,
+        "old_limit": old_limit,
+        "new_limit": new_limit,
+        "dop_devices": dop_devices,
+        "remaining_days": remaining_days,
+        "invoice_id": None,
+        "status": "init"
+    }
+
+    caption = (
+        "<b>☑️ Подтверждение заказа</b>\n\n"
+        f"<blockquote>📱 Было устройств: <b>{old_limit}</b>\n"
+        f"📱 Станет устройств: <b>{new_limit}</b>\n\n"
+        f"⏳ Осталось дней: <b>{math.ceil(remaining_days)}</b></blockquote>\n\n"
+        f"💰 <b>К оплате:</b> <b>{total_price} ₽</b>\n\n"
+        "<i>Выберите способ оплаты</i> 👇"
+    )
+
+    await callback.message.edit_caption(
+        caption=caption,
+        reply_markup=kb.add_device_confirm_keyboard(),
+        parse_mode="HTML"
+    )
+
+    await callback.answer()
+
+# Возврат к выбору количества устройств
+@router.callback_query(F.data == "adddev:back:selector")
+async def add_device_back1(callback: CallbackQuery):
+    await callback.answer('Назад')
+    await add_device_start(callback)
+
+# Оплата доп устройств через Юkassa
+@router.callback_query(F.data == "adddev:pay:yoo")
+async def add_device_pay_yookassa(callback: CallbackQuery):
+    tg_id = callback.from_user.id
+    session = SESSION.get(tg_id)
+
+    if not session or "add_device" not in session:
+        return await callback.answer("Сессия истекла ❗", show_alert=True)
+
+    add = session["add_device"]
+    payment = add["payment"]
+
+    url, payment_id = yoo.create_add_device_invoice(
+        amount=payment["amount"],
+        tg_id=tg_id,
+        old_limit=payment["old_limit"],
+        new_limit=payment["new_limit"],
+        return_url=return_url
+    )
+    amount=payment["amount"]
+
+    payment["payment_id"] = payment_id
+    payment["status"] = "pending"
+
+    caption=(
+        "<b>💳 Оплата через Юkassa</b>\n\n"
+        f"🛒 Общая сумма заказа: <b>{amount}₽</b>\n\n"
+        "❌ Отмена заказа вернёт вас в панель управления подпиской.\n\n"
+        "<i>После успешной оплаты подписка обновится автоматически.</i>"
+    )
+
+    photo_path = "./assets/yookassa_knight.jpg"
+    photo = FSInputFile(photo_path)
+
+    # 🔹 обновляем сообщение — ТОЛЬКО ссылка
+    await callback.message.edit_media(
+        media=InputMediaPhoto(
+            media=photo,
+            caption=caption,
+            parse_mode="HTML"
+        ),
+        reply_markup=kb.add_device_confirm_keyboard1(payment_url=url)
+    )
+
+    await callback.answer()
+
+    asyncio.create_task(
+        auto_check_add_device_payment_yookassa(
+            tg_id=tg_id,
+            message=callback.message
+        )
+    )
+
+@router.callback_query(F.data == "adddev:pay:crypto")
+async def add_device_pay_crypto(callback: CallbackQuery):
+    tg_id = callback.from_user.id
+    session = SESSION.get(tg_id)
+
+    if not session or "add_device" not in session:
+        return await callback.answer("Сессия истекла ❗", show_alert=True)
+
+    payment = session["add_device"]["payment"]
+    amount_rub=payment["amount"]
+
+    # Конвертация RUB → USD
+    usd_rate = await cb.get_usd_rate()
+    amount_usd = round(amount_rub / usd_rate, 2)
+
+    invoice = cb.create_add_device_crypto_invoice(
+        amount_usd=amount_usd,
+        tg_id=tg_id,
+        new_limit=payment["new_limit"],
+    )
+
+    if not invoice:
+        return await callback.answer("Ошибка создания инвойса ❌", show_alert=True)
+
+    payment["crypto_invoice_id"] = invoice["invoice_id"]
+    payment["status"] = "pending"
+
+    await callback.message.edit_caption(
+        caption=(
+            "<b>🪙 Оплата через CryptoBot</b>\n\n"
+            f"🛒 Общая сумма заказа: <b>{amount_usd} USDT</b>\n\n"
+            "❌ Отмена заказа вернёт вас в панель управления подпиской.\n\n"
+            "<i>После успешной оплаты подписка обновится автоматически.</i>"
+        ),
+        reply_markup=kb.crypto_pay_keyboard(invoice["pay_url"]),
+        parse_mode="HTML"
+    )
+
+    await callback.answer()
+
+    asyncio.create_task(
+        auto_check_add_device_payment_crypto(
+            tg_id=tg_id,
+            message=callback.message
+        )
+    )
+
+# Авточекеры статуса платежа
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+async def auto_check_add_device_payment_yookassa(
+    *,
+    tg_id: int,
+    message: Message,
+    timeout: int = 10 * 60,   # 10 минут
+    interval: int = 12        # проверка раз в 12 сек
+):
+    start_ts = time.time()
+
+    while True:
+        await asyncio.sleep(interval)
+
+        session = SESSION.get(tg_id)
+        if not session or "add_device" not in session:
+            return  # пользователь ушёл
+
+        payment = session["add_device"].get("payment")
+        if not payment or not payment.get("payment_id"):
+            return
+
+        payment_id = payment["payment_id"]
+
+        # ─── проверяем платёж ───────────────────────
+        if yoo.check_payment(payment_id):
+            # ─── SUCCESS ───────────────────────────
+            subscription = session["subscription"]
+
+            await rm.update_subscription_hwid_limit(
+                sub_uuid=subscription["uuid"],
+                hwid_limit=payment["new_limit"],
+            )
+
+            # обновляем локально
+            subscription["hwidDeviceLimit"] = payment["new_limit"]
+
+            # чистим add_device
+            session.pop("add_device", None)
+            # ─── возвращаем пользователя в панель ───
+            await render_manage_subscription_panel(
+                tg_id=tg_id,
+                message=message,
+                subscription=subscription
+            )
+            return
+
+        # ─── таймаут ───────────────────────────────
+        if time.time() - start_ts > timeout:
+            await message.edit_caption(
+                caption=(
+                    "⏳ Время ожидания оплаты истекло.\n\n"
+                    "Если вы оплатили — напишите в поддержку."
+                ),
+                parse_mode="HTML"
+            )
+            return
+async def auto_check_add_device_payment_crypto(
+    *,
+    tg_id: int,
+    message: Message,
+    timeout: int = 10 * 60,
+    interval: int = 12
+):
+    start_ts = time.time()
+
+    while True:
+        await asyncio.sleep(interval)
+
+        session = SESSION.get(tg_id)
+        if not session or "add_device" not in session:
+            return
+
+        payment = session["add_device"]["payment"]
+        invoice_id = payment.get("crypto_invoice_id")
+
+        if not invoice_id:
+            return
+
+        if cb.check_crypto_invoice(invoice_id):
+            subscription = session["subscription"]
+
+            # 🔹 бизнес-логика
+            await rm.update_subscription_hwid_limit(
+                sub_uuid=subscription["uuid"],
+                hwid_limit=payment["new_limit"]
+            )
+
+            subscription["hwidDeviceLimit"] = payment["new_limit"]
+            session.pop("add_device", None)
+            # 🔹 возврат в панель
+            await render_manage_subscription_panel(
+                tg_id=tg_id,
+                message=message,
+                subscription=subscription
+            )
+            return
+
+        if time.time() - start_ts > timeout:
+            await message.edit_caption(
+                caption=(
+                    "⏳ Время ожидания оплаты истекло.\n\n"
+                    "Если вы оплатили — напишите в поддержку."
+                ),
+                parse_mode="HTML"
+            )
+            return
+        
+# Функция возвращения пользователя в панель управления    
+async def render_manage_subscription_panel(
+    *,
+    tg_id: int,
+    message: Message,
+    subscription: dict
+):
+    desc = (subscription.get("description") or "").lower()
+
+    if desc.startswith("paid"):
+        photo_path = "./assets/base_vpn_knight.jpg"
+    elif desc.startswith("special"):
+        photo_path = "./assets/obhodwl_vpn_knight.jpg"
+    else:
+        photo_path = "./assets/multi_vpn_knight.jpg"
+
+    sub_uuid = subscription["uuid"]
+    hw = await rm.get_hwid_devices(sub_uuid)
+    devices = hw.get("devices") or hw.get("response", {}).get("devices", [])
+
+    SESSION[tg_id]["devices"] = devices
+
+    limit = subscription.get("hwidDeviceLimit", 0)
+    devices_str = f"{len(devices)}/{limit}"
+
+    # список устройств
+    if devices:
+        device_lines = ""
+        for dev in devices:
+            model = dev.get("deviceModel") or "Unknown"
+            platform = dev.get("platform") or "?"
+            os_ver = dev.get("osVersion") or ""
+            agent = dev.get("userAgent") or ""
+            device_lines += f"• {model} ({platform} {os_ver}) {agent}\n"
+    else:
+        device_lines = "• Нет подключённых устройств\n"
+
+    caption = (
+        "✅ <b>Количество устройств успешно увеличено</b>\n"
+        "🛠️ <b>Вы вернулись в панель управление подпиской</b>\n\n"
+        f"<blockquote>💎 <b>Тариф:</b> {clean_plan(subscription.get('description'))}\n"
+        f"───────────────────────────────\n"
+        f"📱 <b>Устройства:</b> <b>{devices_str}</b>\n\n"
+        f"{device_lines}"
+        f"───────────────────────────────\n"
+        f"🕒 <b>Начало:</b> {fmt_date(subscription.get('createdAt'))}\n"
+        f"⏳ <b>Окончание:</b> {fmt_date(subscription.get('expireAt'))}\n"
+        f"───────────────────────────────</blockquote>\n"
+    )
+
+    await message.edit_media(
+        InputMediaPhoto(
+            media=FSInputFile(photo_path),
+            caption=caption,
+            parse_mode="HTML"
+        ),
+        reply_markup=kb.manage_devices_keyboard(devices)
+    )
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+
+# Оплата доп устройств через Referral Points       
+@router.callback_query(F.data == "adddev:pay:rp")
+async def add_device_pay_rp(callback: CallbackQuery):
+    tg_id = callback.from_user.id
+    session = SESSION.get(tg_id)
+
+    if not session or "add_device" not in session:
+        return await callback.answer("Сессия истекла ❗", show_alert=True)
+
+    add = session["add_device"]
+    payment = add["payment"]
+
+    amount=payment["amount"]
+    amount_rp = math.ceil(amount / 8)
+
+    # Баланс пользователя
+    user_rp = await hp.get_rp_balance(tg_id)
+    photo = FSInputFile("./assets/rp_knight.jpg")
+
+    caption = (
+        f"💸 <b>Оплата при помощи RP</b>\n\n"
+        f"🛒 Итоговая цена: <b>{amount}₽</b>\n"
+        f"🟪 Стоимость в RP: <b>{amount_rp} RP</b>\n"
+        f"📦 Ваш баланс: <b>{user_rp} RP</b>\n\n"
+        "❌ Отмена заказа вернёт вас в панель управления подпиской.\n\n"
+        "<i>Подтвердить оплату RP?</i>"
+    )
+
+    # Выводим окно с подтверждением
+    await callback.message.edit_media(
+        media=InputMediaPhoto(
+            media=photo,
+            caption=caption,
+            parse_mode="HTML"
+        ),
+    reply_markup=kb.addev_rp_confirm_keyboard(amount_rp)
+    )
+    
+    await callback.answer()
+
+# Проверка платежа в RP
+@router.callback_query(F.data.startswith("addev:rp:"))
+async def add_device_check_rp(callback: CallbackQuery):
+    _, _, amount_rp = callback.data.split(":")
+    tg_id = callback.from_user.id
+    amount_rp = int(amount_rp)
+    
+    session = SESSION.get(tg_id)
+    if not session or "add_device" not in session:
+        return await callback.answer("Сессия истекла ❗", show_alert=True)
+
+    add = session["add_device"]
+    payment = add["payment"]
+    
+    # --- Проверка RP ---
+    user_rp = await hp.get_rp_balance(tg_id)
+    if user_rp < amount_rp:
+        return await callback.answer("❌ Недостаточно RP для оплаты.")
+
+    # --- Списываем RP ---
+    await hp.remove_rp(tg_id, amount_rp)
+    await callback.answer("✅ Оплата подтверждена!")
+
+    subscription = session["subscription"]
+
+    await rm.update_subscription_hwid_limit(
+        sub_uuid=subscription["uuid"],
+        hwid_limit=payment["new_limit"],
+    )
+
+    # обновляем локально
+    subscription["hwidDeviceLimit"] = payment["new_limit"]
+
+    # чистим add_device
+    session.pop("add_device", None)
+
+    await callback.answer(
+        "✅ Количество устройств успешно увеличено",
+        show_alert=False
+    )
+    # ─── Возврат в панель управления ──────
+    await add_device_back(callback)
 
 # Получение пробной подписки
 @router.callback_query(F.data == 'key')
@@ -786,9 +1375,11 @@ async def back_main(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "🛡️ <b>С возвращение, герой! Вот ты и снова в начале.</b>\n\n"
-                "⚔️ Получай доступ и захватывай новые вершины!\n\n"
-                "<i>Выбери интересующий тебя вариант 👇</i>"
+                "🛡️ <b>С возвращение! Вот ты и снова в главном меню.</b>\n\n"
+                "<blockquote>⚔️ Получай доступ и захватывай новые вершины!\n\n"
+                "<i>Отсюда можно легко перейти к нужным возможностям.\n"
+                "Если что-то понадобится — просто выбери подходящий пункт.</i></blockquote>\n\n"
+                "<i>Начнём? 👇</i>"
             ),
             parse_mode="HTML"
         ),
@@ -856,9 +1447,11 @@ async def back_main(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "🛡️ <b>С возвращение, герой! Вот ты и снова в начале.</b>\n\n"
-                "⚔️ Получай доступ и захватывай новые вершины!\n\n"
-                "<i>Выбери интересующий тебя вариант 👇</i>"
+                "🛡️ <b>С возвращение! Вот ты и снова в главном меню.</b>\n\n"
+                "<blockquote>⚔️ Получай доступ и захватывай новые вершины!\n\n"
+                "<i>Отсюда можно легко перейти к нужным возможностям.\n"
+                "Если что-то понадобится — просто выбери подходящий пункт.</i></blockquote>\n\n"
+                "<i>Начнём? 👇</i>"
             ),
             parse_mode="HTML"
         ),
@@ -962,7 +1555,7 @@ async def tarif(callback: CallbackQuery):
         "tariff_group": "basic"
     }
 
-    photo_path = "./assets/basic_knight.jpg"
+    photo_path = "./assets/base_vpn_knight.jpg"
     photo = FSInputFile(photo_path)
 
     await callback.message.edit_media(
@@ -990,7 +1583,7 @@ async def tarif(callback: CallbackQuery):
         "tariff_group": "special"
     }
 
-    photo_path = "./assets/obhod_knight.jpg"
+    photo_path = "./assets/obhodwl_vpn_knight.jpg"
     photo = FSInputFile(photo_path)
 
     await callback.message.edit_media(
@@ -1017,7 +1610,7 @@ async def tarif(callback: CallbackQuery):
         "tariff_group": "multi"
     }
 
-    photo_path = "./assets/obhod_knight.jpg"
+    photo_path = "./assets/multi_vpn_knight.jpg"
     photo = FSInputFile(photo_path)
 
     await callback.message.edit_media(
@@ -1089,7 +1682,7 @@ async def handle_tariff_choice(callback: CallbackQuery):
         "step": DEVICES_STEP
     }
 
-    photo_path = "./assets/obhod_knight.jpg"
+    photo_path = "./assets/subs_cust_knight.jpg"
     photo = FSInputFile(photo_path)
 
     await callback.message.edit_media(
@@ -1170,7 +1763,7 @@ async def devices_next(callback: CallbackQuery):
     base_price = tariff["price"]
     days = tariff["days"]
 
-    extra_price = round(devices_extra * 50 * (days / 30))
+    extra_price = round(devices_extra * PRICE_PER_DEVICE * (days / 30))
     full_price = int(base_price + extra_price)
     discount = await hp.get_active_discount(tg_id)
 
@@ -1189,7 +1782,7 @@ async def devices_next(callback: CallbackQuery):
     else:
         invoice["final_price"] = full_price
 
-    photo_path = "./assets/obhod_knight.jpg"
+    photo_path = "./assets/subs_cust_knight.jpg"
     photo = FSInputFile(photo_path)
 
     text = (
@@ -1199,7 +1792,7 @@ async def devices_next(callback: CallbackQuery):
         f"🗓 Дней: <b>{days}</b>\n"
         f"🌐 Трафик: <b>{tariff['traffic']}</b>\n"
         f"📱 Устройства: <b>{devices_total}</b>\n"
-        f"➕ Доп: <b>{devices_extra} × 50₽ / мес</b>\n"
+        f"➕ Доп: <b>{devices_extra} × 39₽ / мес</b>\n"
         f"─────────────────────────────</blockquote>\n\n"
     )
     if discount:
@@ -1234,7 +1827,7 @@ async def back_to_tariffs(callback: CallbackQuery):
 
     if group == "basic":
         markup = kb.tariffs_b
-        photo = "./assets/basic_knight.jpg"
+        photo = "./assets/base_vpn_knight.jpg"
         caption = (
                 "↩️ <b>Вы вернулись на развилку.</b>\n\n"
                 "<blockquote><i>В данные тарифы не входят серверы, предназначенные для обхода белых списков 🚫\n\n"
@@ -1244,7 +1837,7 @@ async def back_to_tariffs(callback: CallbackQuery):
             )
     elif group == "special":
         markup = kb.tariffs_s
-        photo = "./assets/obhod_knight.jpg"
+        photo = "./assets/obhodwl_vpn_knight.jpg"
         caption = (
                 "🥷 <b>Раздел специальных тарифов</b>\n\n"
                 "<blockquote><i>Режимы с расширенными возможностями обхода блокировок и улучшенной стабильностью подключения</i> 📶\n\n"
@@ -1253,7 +1846,7 @@ async def back_to_tariffs(callback: CallbackQuery):
             )
     elif group == "multi":
         markup = kb.tariffs_m
-        photo = "./assets/obhod_knight.jpg"
+        photo = "./assets/multi_vpn_knight.jpg"
         caption = (
                 "💥 <b>Раздел мульти-доступа</b>\n\n"
                 "<blockquote><i>Это место, где вы можете получить доступ ко всем серверам сервиса в одной подписке</i> 🛜\n\n"
@@ -1285,7 +1878,7 @@ async def back_to_devices(callback: CallbackQuery):
     tariff_code = invoice["tariff_code"]
     current = invoice["devices"]
 
-    photo_path = "./assets/obhod_knight.jpg"
+    photo_path = "./assets/subs_cust_knight.jpg"
     photo = FSInputFile(photo_path)
 
     caption = (
@@ -1433,6 +2026,7 @@ async def handle_crypto_payment(callback: CallbackQuery):
         f"💸 <b>Оплата тарифа: {tariff_code}</b>\n\n"
         f"🛒 Общая сумма заказа: <b>{amount_rub}₽</b>\n"
         f"🌐 К оплате в CryptoBot: <b>{amount_usd}$</b>\n\n"
+        "После оплаты обязательно нажмите '🔄 Проверить оплату'\n\n"
         "<i>Нажмите кнопку ниже, чтобы перейти к оплате 👇</i>"
     )
 
@@ -1596,6 +2190,7 @@ async def handle_yookassa_payment(callback: CallbackQuery):
     caption = (
         f"💸 <b>Оплата тарифа: {tariff_code}</b>\n\n"
         f"🛒 Общая сумма заказа: <b>{amount_rub}₽</b>\n\n"
+        "После оплаты обязательно нажмите '🔄 Проверить оплату'\n\n"
         "<i>Нажмите кнопку ниже, чтобы оплатить 👇</i>"
     )
 
@@ -1788,7 +2383,7 @@ async def check_rp_payment(callback: CallbackQuery):
         return await callback.answer("❌ Недостаточно RP для оплаты.")
 
     # --- Списываем RP ---
-    await hp.remove_rp(tg_id, amount_rp, reason=f"Оплата тарифа {tariff_code}")
+    await hp.remove_rp(tg_id, amount_rp)
     await callback.answer("✅ Оплата подтверждена!")
 
     # ---- Параметры ----

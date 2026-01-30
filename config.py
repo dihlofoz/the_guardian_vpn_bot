@@ -96,12 +96,6 @@ BASE_TARIFFS = {
     "12 месяцев"
 }
 
-TARIFF_MAP = {
-    "paid": "Paid",
-    "special": "Special",
-    "multi": "Multi"
-}
-
 # Юkassa
 ACCOUNT_ID='1189888'
 SECRET_KEY='test_2MphmmsqWsXlh7LmAOFNre32HNr6pov9V8ZenYkB-L0'
@@ -115,10 +109,10 @@ SECOND_SQUAD_ID = '81b30140-0d94-4a1c-b6b4-6a88b4e2fa4c'
 SQUAD_ID_TRIAL = 'bfe69553-510e-4441-b4e4-ba9d5405f632'
 
 DEFAULT_DEVICES = 1
-DEFAULT_DEVICES = 1
 DEVICES_MIN = 1
 DEVICES_MAX = 5
 DEVICES_STEP = 1
+PRICE_PER_DEVICE = 39
 
 # База данных PostgreSQL
 DATABASE_URL = "postgresql+asyncpg://vpn_user:Local4ti!@localhost:5432/vpn_bot_db"
