@@ -25,7 +25,7 @@ async def create_trial_user(telegram_id: int):
         "trafficLimitStrategy": "NO_RESET",
         "telegramId": telegram_id,
         "email": f"{username}@trial.remna",
-        "hwidDeviceLimit": 3,
+        "hwidDeviceLimit": 1,
         "activeInternalSquads": [SQUAD_ID_TRIAL],
         "description": f"Trial"
     }
@@ -183,13 +183,13 @@ async def create_paid_user(tg_id: int, tariff_code: str, days: int, hwid_limit: 
             if response.status_code not in (200, 201, 204):
                 raise Exception(f"{response.status_code} - {response.text}")
 
-            await hp.add_or_extend_base_subscription(
-                tg_id=tg_id,
-                plan_name=tariff_code,
-                days=days,
-                amount=TARIFFS[tariff_code]["price"],
-                uuid=active["uuid"]
-            )
+            # await hp.add_or_extend_base_subscription(
+                # tg_id=tg_id,
+                # plan_name=tariff_code,
+                # days=days,
+                # amount=TARIFFS[tariff_code]["price"],
+                # uuid=active["uuid"]
+            # )
 
             # shortUuid берём корректно
             short_uuid = await get_short_uuid_by_telegram_paid(tg_id)
@@ -225,13 +225,13 @@ async def create_paid_user(tg_id: int, tariff_code: str, days: int, hwid_limit: 
             res_json = response.json().get("response", {})
             uuid = res_json.get("uuid")
 
-            await hp.add_or_extend_base_subscription(
-                tg_id=tg_id,
-                plan_name=tariff_code,
-                days=days,
-                amount=TARIFFS[tariff_code]["price"],
-                uuid=uuid
-            )
+            # await hp.add_or_extend_base_subscription(
+                # tg_id=tg_id,
+                # plan_name=tariff_code,
+                # days=days,
+                # amount=TARIFFS[tariff_code]["price"],
+                # uuid=uuid
+            # )
 
             # shortUuid получаем так же, как в trial
             short_uuid = await get_short_uuid_by_telegram_paid(tg_id)
@@ -311,13 +311,13 @@ async def create_special_paid_user(tg_id: int, tariff_code: str, days: int, hwid
                 raise Exception(f"{response.status_code} - {response.text}")
 
             # Обновляем запись в БД
-            await hp.add_or_extend_special_subscription(
-                tg_id=tg_id,
-                plan_name=tariff_code,
-                days=days,
-                amount=TARIFFS[tariff_code]["price"],
-                uuid=active["uuid"]
-            )
+            # await hp.add_or_extend_special_subscription(
+                # tg_id=tg_id,
+                # plan_name=tariff_code,
+                # days=days,
+                # amount=TARIFFS[tariff_code]["price"],
+                # uuid=active["uuid"]
+            #)
 
             short_uuid = await get_short_uuid_by_telegram_special(tg_id)
 
@@ -354,13 +354,13 @@ async def create_special_paid_user(tg_id: int, tariff_code: str, days: int, hwid
             res_json = response.json().get("response", {})
             uuid = res_json.get("uuid")
 
-            await hp.add_or_extend_special_subscription(
-                tg_id=tg_id,
-                plan_name=tariff_code,
-                days=days,
-                amount=TARIFFS[tariff_code]["price"],
-                uuid=uuid
-            )
+            # await hp.add_or_extend_special_subscription(
+                # tg_id=tg_id,
+                # plan_name=tariff_code,
+                # days=days,
+                # amount=TARIFFS[tariff_code]["price"],
+                # uuid=uuid
+            #)
 
             short_uuid = await get_short_uuid_by_telegram_special(tg_id)
 
@@ -438,13 +438,13 @@ async def create_multi_paid_user(tg_id: int, tariff_code: str, days: int, hwid_l
                 raise Exception(f"{response.status_code} - {response.text}")
 
             # Обновляем запись в БД
-            await hp.add_or_extend_multi_subscription(
-                tg_id=tg_id,
-                plan_name=tariff_code,
-                days=days,
-                amount=TARIFFS[tariff_code]["price"],
-                uuid=active["uuid"]
-            )
+            # await hp.add_or_extend_multi_subscription(
+                # tg_id=tg_id,
+                # plan_name=tariff_code,
+                # days=days,
+                # amount=TARIFFS[tariff_code]["price"],
+                # uuid=active["uuid"]
+            # )
 
             short_uuid = await get_short_uuid_by_telegram_multi(tg_id)
 
@@ -481,13 +481,13 @@ async def create_multi_paid_user(tg_id: int, tariff_code: str, days: int, hwid_l
             res_json = response.json().get("response", {})
             uuid = res_json.get("uuid")
 
-            await hp.add_or_extend_multi_subscription(
-                tg_id=tg_id,
-                plan_name=tariff_code,
-                days=days,
-                amount=TARIFFS[tariff_code]["price"],
-                uuid=uuid
-            )
+            # await hp.add_or_extend_multi_subscription(
+                # tg_id=tg_id,
+                # plan_name=tariff_code,
+                # days=days,
+                # amount=TARIFFS[tariff_code]["price"],
+                # uuid=uuid
+            # )
 
             short_uuid = await get_short_uuid_by_telegram_multi(tg_id)
 
@@ -691,72 +691,105 @@ async def update_subscription_expire(uuid: str, new_expire):
 
     return r
 
-# Добавление дней в подписку
-async def apply_rp_days(tg_id: int):
-    data = await hp.check_paid_subscription_and_days(tg_id)
-    if not data:
+async def apply_rp_resource(
+    *,
+    tg_id: int,
+    sub_type: str,
+    resource_type: str,
+    amount: int | float
+):
+    amount = int(amount)  
+
+    sub = await hp.get_active_subscription_data(tg_id, sub_type)
+    if not sub:
         return {"status": "invalid"}
 
-    days_to_add = int(data["balance"])
-    new_expire = data["expire_date"] + timedelta(days=days_to_add)
+    uuid = sub["uuid"]
 
-    # PATCH на REMNA
-    r = await update_subscription_expire(data["uuid"], new_expire)
-    if r.status_code not in (200, 201, 204):
-        return {"status": "api_error", "details": r.text}
+    try:
+        # =======================
+        # ➕ ДНИ
+        # =======================
+        if resource_type == "days":
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(
+                    f"{REMNA_API_URL}/{uuid}",
+                    headers={"Authorization": f"Bearer {REMNAWAVE_TOKEN}"}
+                )
 
-    # Обновление базы
-    ok = await hp.update_paid_subscription_with_rp_days(tg_id)
-    if not ok:
-        return {"status": "db_error"}
+            if resp.status_code != 200:
+                return {"status": "api_error"}
 
-    return {"status": "success", "new_expire": new_expire}
+            remote_expire_str = resp.json()["response"].get("expireAt")
+            if not remote_expire_str:
+                return {"status": "invalid"}
 
-# Добавление гигов в подписку
-async def apply_rp_gb(tg_id: int):
-    data = await hp.check_special_subscription_and_gb(tg_id)
-    if not data:
-        return {"status": "invalid"}
+            remote_expire = datetime.fromisoformat(
+                remote_expire_str.replace("Z", "+00:00")
+            )
 
-    uuid = data["uuid"]
-    add_gb = float(data["balance"])
-    add_bytes = int(add_gb * 1024 * 1024 * 1024)  # GB → bytes
+            new_expire = remote_expire + timedelta(days=amount)
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        # Получаем текущий трафик
-        user_data_resp = await client.get(f"{REMNA_API_URL}/{uuid}", headers={
-            "Authorization": f"Bearer {REMNAWAVE_TOKEN}"
-        })
+            r = await update_subscription_expire(uuid, new_expire)
+            if r.status_code not in (200, 201, 204):
+                return {"status": "api_error"}
 
-        if user_data_resp.status_code != 200:
-            return {"status": "api_error", "details": user_data_resp.text}
+            updated = await hp.update_subscription_expire_date(
+                tg_id=tg_id,
+                sub_type=sub_type,
+                new_expire=new_expire
+            )
 
-        user_data = user_data_resp.json().get("response", {})
-        current_limit = user_data.get("trafficLimitBytes", 0) or 0
+            if not updated:
+                return {"status": "db_error"}
 
-        # Добавляем новый объём
-        new_limit = current_limit + add_bytes
+            return {"status": "success", "new_expire": new_expire}
+        # =======================
+        # ➕ GB
+        # =======================
+        if resource_type == "gb":
+            add_bytes = int(float(amount) * 1024 ** 3)
 
-        # PATCH обновления лимита
-        r = await client.patch(
-            REMNA_API_URL,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {REMNAWAVE_TOKEN}"
-            },
-            json={
-                "uuid": uuid,
-                "trafficLimitBytes": new_limit,
-                "status": "ACTIVE"
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(
+                    f"{REMNA_API_URL}/{uuid}",
+                    headers={
+                        "Authorization": f"Bearer {REMNAWAVE_TOKEN}"
+                    }
+                )
+
+                if resp.status_code != 200:
+                    return {"status": "api_error", "details": resp.text}
+
+                current = resp.json()["response"].get("trafficLimitBytes") or 0
+                new_limit = current + add_bytes
+
+                patch = await client.patch(
+                    REMNA_API_URL,
+                    headers={
+                        "Authorization": f"Bearer {REMNAWAVE_TOKEN}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "uuid": uuid,
+                        "trafficLimitBytes": new_limit,
+                        "status": "ACTIVE"
+                    }
+                )
+
+                if patch.status_code not in (200, 201, 204):
+                    return {"status": "api_error", "details": patch.text}
+
+            return {
+                "status": "success",
+                "added_gb": float(amount)
             }
-        )
 
-    if r.status_code not in (200, 201, 204):
-        return {"status": "api_error", "details": r.text}
+        return {"status": "invalid"}
 
-    # Обновление базы — уменьшаем баланс GB
-    ok = await hp.update_special_subscription_after_gb_apply(tg_id, add_gb)
-    if not ok:
-        return {"status": "db_error"}
+    except Exception as e:
+        return {
+            "status": "error",
+            "details": str(e)
+        }
 
-    return {"status": "success", "added_gb": add_gb}

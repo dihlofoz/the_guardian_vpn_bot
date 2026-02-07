@@ -12,53 +12,53 @@ BASE_URL = "https://pay.crypt.bot/api/"
 TARIFFS = {
     "1 месяц": {
         "days": 30,
-        "price": 139,
+        "price": 109,
         "traffic": "∞ Безлимит"
     },
     "3 месяца": {
         "days": 91,
-        "price": 389,
+        "price": 319,
         "traffic": "∞ Безлимит"
     },
     "6 месяцев": {
         "days": 182,
-        "price": 749,
+        "price": 689,
         "traffic": "∞ Безлимит"
     },
     "9 месяцев": {
         "days": 273,
-        "price": 1109,
+        "price": 1049,
         "traffic": "∞ Безлимит"
     },
     "12 месяцев": {
         "days": 365,
-        "price": 1449,
+        "price": 1369,
         "traffic": "∞ Безлимит"
     },
-    "7 дней (25 GB)": {
+    "7 дней (50 GB)": {
         "days": 7,
-        "price": 75,
-        "traffic": "25 GB"
-    },
-    "14 дней (50 GB)": {
-        "days": 14,
-        "price": 135,
+        "price": 59,
         "traffic": "50 GB"
     },
-    "30 дней (100 GB)": {
+    "14 дней (100 GB)": {
+        "days": 14,
+        "price": 99,
+        "traffic": "100 GB"
+    },
+    "30 дней (200 GB)": {
         "days": 30,
-        "price": 215,
-        "traffic": "100GB"
+        "price": 169,
+        "traffic": "200 GB"
     },
     "1 месяц (300 GB)": {
         "days": 30,
-        "price": 219,
-        "traffic": "300GB"
+        "price": 209,
+        "traffic": "300 GB"
     },
     "3 месяца (900 GB)": {
         "days": 91,
-        "price": 639,
-        "traffic": "900GB"
+        "price": 589,
+        "traffic": "900 GB"
     }
 }
 
@@ -67,9 +67,9 @@ TRIAL_TRAFFIC_GB = 30
 TRIAL_TRAFFIC_BYTES = TRIAL_TRAFFIC_GB * 1024**3
 
 SPECIAL_TRAFFIC_LIMITS = {
-    "7 дней (25 GB)": 25 * 1024**3,
-    "14 дней (50 GB)": 50 * 1024**3,
-    "30 дней (100 GB)": 100 * 1024**3
+    "7 дней (50 GB)": 50 * 1024**3,
+    "14 дней (100 GB)": 100 * 1024**3,
+    "30 дней (200 GB)": 200 * 1024**3
 }
 
 MULTI_TRAFFIC_LIMITS = {
@@ -78,9 +78,9 @@ MULTI_TRAFFIC_LIMITS = {
 }
 
 SPECIAL_TARIFFS = {
-    "7 дней (25 GB)",
-    "14 дней (50 GB)",
-    "30 дней (100 GB)"
+    "7 дней (50 GB)",
+    "14 дней (100 GB)",
+    "30 дней (200 GB)"
 }
 
 MULTI_TARIFFS = {
@@ -102,7 +102,7 @@ SECRET_KEY='test_2MphmmsqWsXlh7LmAOFNre32HNr6pov9V8ZenYkB-L0'
 BASE_URL_YOO = "https://api.yookassa.ru/v3/payments"
 
 # Remnawave
-REMNAWAVE_BASE_URL='https://panel.grdguard.xyz/api'
+REMNAWAVE_BASE_URL='https://reload.grdgrd.icu/api'
 REMNAWAVE_TOKEN='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1dWlkIjoiODM1YmM4OGMtMTIwOS00NjhhLThlOTYtNzM2MDljNzRlMmFhIiwidXNlcm5hbWUiOm51bGwsInJvbGUiOiJBUEkiLCJpYXQiOjE3NjEyNDQ3NTEsImV4cCI6MTA0MDExNTgzNTF9.7t02VkJaycL2_ZRIG2fzspLMeaUDzZEcAu48PvQRn6U'
 SQUAD_ID = '628f6873-1aae-4ce0-818b-8b2e2d96c308'
 SECOND_SQUAD_ID = '81b30140-0d94-4a1c-b6b4-6a88b4e2fa4c'
@@ -116,3 +116,12 @@ PRICE_PER_DEVICE = 39
 
 # База данных PostgreSQL
 DATABASE_URL = "postgresql+asyncpg://vpn_user:Local4ti!@localhost:5432/vpn_bot_db"
+
+SUB_TYPES = ("base", "bypass", "multi")
+RESOURCE_TYPES = ("days", "gb")
+
+ALLOWED_RESOURCES = {
+    "base":   {"days"},
+    "bypass": {"days", "gb"},
+    "multi":  {"days", "gb"},
+}

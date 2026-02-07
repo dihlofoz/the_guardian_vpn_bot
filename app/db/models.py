@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Float, Boolean, ForeignKey, func
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Float, Boolean, ForeignKey, func, Date
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -21,8 +21,8 @@ class User(Base):
     bonus_days_balance = Column(Integer, default=0)
     rp_days_balance = Column(Integer, default=0)   # накопленные дни
     rp_gb_balance = Column(Float, default=0.0)    # накопленные GB
-    rp_days_limit = Column(Integer, default=30)   # максимум дней
-    rp_gb_limit = Column(Float, default=45.0)
+    rp_days_limit = Column(Integer, default=15)
+    rp_gb_limit = Column(Float, default=30.0)
 
     # 🔹 Обратные связи
     trial_subscriptions = relationship(

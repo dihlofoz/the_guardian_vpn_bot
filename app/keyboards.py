@@ -19,7 +19,7 @@ vpn = InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 help = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='📖 Инструкция + F.A.Q.', url='https://telegra.ph/Instrukciya--FAQ-10-27')],
+    [InlineKeyboardButton(text='📖 F.A.Q.', url='https://telegra.ph/Instrukciya--FAQ-10-27')],
     [InlineKeyboardButton(text='✉️ Написать в поддержку', url='https://t.me/suppgrdvpn')],
     [InlineKeyboardButton(text='← Назад', callback_data='back_main')]
 ])
@@ -43,11 +43,58 @@ ref = InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 updatesub = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='Базовый VPN 🪴', callback_data='basevpn'),
-    InlineKeyboardButton(text='Обход Whitelists 🥷', callback_data='obhodwl')],
-    [InlineKeyboardButton(text='Мульти VPN 💥', callback_data='multitarif')],
-    [InlineKeyboardButton(text='← Назад', callback_data='back_main5')]
+    [
+        InlineKeyboardButton(
+            text='Базовый VPN 🪴',
+            callback_data='rp:upgrade:base'
+        ),
+        InlineKeyboardButton(
+            text='Обход Whitelists 🥷',
+            callback_data='rp:upgrade:bypass'
+        )
+    ],
+    [
+        InlineKeyboardButton(
+            text='Мульти VPN 💥',
+            callback_data='rp:upgrade:multi'
+        )
+    ],
+    [
+        InlineKeyboardButton(
+            text='← Назад',
+            callback_data='back_main5'
+        )
+    ]
 ])
+
+
+def rp_resource_choice_kb(sub_type: str):
+    buttons = []
+
+    if sub_type in ("bypass", "multi"):
+        buttons.append(
+            InlineKeyboardButton(
+                text="➕ Добавить дни",
+                callback_data="rp:add:days"
+            )
+        )
+        buttons.append(
+            InlineKeyboardButton(
+                text="➕ Добавить ГБ",
+                callback_data="rp:add:gb"
+            )
+        )
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            buttons,
+            [InlineKeyboardButton(text="← Назад", callback_data="modernback")]
+        ]
+    )
+
+rp_amount_back_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="← Назад", callback_data="rp:amount:back")]
+    ])
 
 back_to_start = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='🏠 Вернуться на старт', callback_data='back_main2')]
@@ -87,26 +134,26 @@ tarifs = InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 tariffs_b = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='🍼 1 месяц - 139₽', callback_data='1 месяц')],
-    [InlineKeyboardButton(text='⚡️ 3 месяца - 389₽', callback_data='3 месяца')],
-    [InlineKeyboardButton(text='🦾 6 месяцев - 749₽', callback_data='6 месяцев')],
-    [InlineKeyboardButton(text='🪖 9 месяцев - 1109₽', callback_data='9 месяцев')], 
-    [InlineKeyboardButton(text='💎 12 месяцев - 1449₽', callback_data='12 месяцев')],
+    [InlineKeyboardButton(text='🍼 1 месяц - 109₽', callback_data='1 месяц')],
+    [InlineKeyboardButton(text='⚡️ 3 месяца - 319₽', callback_data='3 месяца')],
+    [InlineKeyboardButton(text='🦾 6 месяцев - 689₽', callback_data='6 месяцев')],
+    [InlineKeyboardButton(text='🪖 9 месяцев - 1049₽', callback_data='9 месяцев')], 
+    [InlineKeyboardButton(text='💎 12 месяцев - 1369₽', callback_data='12 месяцев')],
     [InlineKeyboardButton(text='← Назад', callback_data='back_main3'),
     InlineKeyboardButton(text='🏠 На старт', callback_data='back_main2')]
 ])
 
 tariffs_s = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='🍼 7 дней - 75₽', callback_data='7 дней (25 GB)')],
-    [InlineKeyboardButton(text='⚡️ 14 дней - 135₽', callback_data='14 дней (50 GB)')],
-    [InlineKeyboardButton(text='💎 30 дней - 215₽', callback_data='30 дней (100 GB)')],
+    [InlineKeyboardButton(text='🍼 7 дней - 59₽', callback_data='7 дней (50 GB)')],
+    [InlineKeyboardButton(text='⚡️ 14 дней - 99₽', callback_data='14 дней (100 GB)')],
+    [InlineKeyboardButton(text='💎 30 дней - 169₽', callback_data='30 дней (200 GB)')],
     [InlineKeyboardButton(text='← Назад', callback_data='back_main3'),
     InlineKeyboardButton(text='🏠 На старт', callback_data='back_main2')]
 ])
 
 tariffs_m = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='🍼 1 месяц - 219₽', callback_data='1 месяц (300 GB)')],
-    [InlineKeyboardButton(text='⚡️ 3 месяца - 639₽', callback_data='3 месяца (900 GB)')],
+    [InlineKeyboardButton(text='🍼 1 месяц - 209₽', callback_data='1 месяц (300 GB)')],
+    [InlineKeyboardButton(text='⚡️ 3 месяца - 589₽', callback_data='3 месяца (900 GB)')],
     [InlineKeyboardButton(text='← Назад', callback_data='back_main3'),
     InlineKeyboardButton(text='🏠 На старт', callback_data='back_main2')]
 ])
@@ -344,10 +391,10 @@ convert_resource_kb = InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 # Кнопки выбора количества
-def convert_amount_kb(max_amount: int, min_amount: int = 2):
+def convert_amount_kb(max_amount: int, min_amount: int = 1):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"⬇️ Мин ({min_amount} RP)", callback_data=f"amount_min"),
-         InlineKeyboardButton(text=f"⬆️ Макс ({max_amount} RP)", callback_data=f"amount_max")],
+         InlineKeyboardButton(text=f"⬆️ Макс", callback_data=f"amount_max")],
         [InlineKeyboardButton(text="↕️ Частично", callback_data="amount_partial")],
         [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_conversion")]
     ])

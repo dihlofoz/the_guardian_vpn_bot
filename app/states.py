@@ -13,3 +13,7 @@ class ConvertRPStates(StatesGroup):
     choose_resource = State()      
     choose_amount_type = State()   
     enter_custom_amount = State()
+
+class RpUpgradeFSM(StatesGroup):
+    choosing_resource = State()
+    choosing_amount = State()

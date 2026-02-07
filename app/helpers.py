@@ -1,13 +1,13 @@
 import random
 import string
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, insert, update, delete
 from sqlalchemy.exc import IntegrityError
 from app.db.models import User, Referral, TrialSubscription, PromoBonusDays, PromoDiscount, PromoUse, ExpiredSubscriptionNotification, NotificationMeta, Subscriptions
 from app.db.dealer import async_session_maker
 from sqlalchemy.exc import SQLAlchemyError
-from config import CHANNEL_ID, MULTI_TARIFFS, BASE_TARIFFS, SPECIAL_TARIFFS
+from config import CHANNEL_ID, MULTI_TARIFFS, BASE_TARIFFS, SPECIAL_TARIFFS, SUB_TYPES, ALLOWED_RESOURCES, RESOURCE_TYPES
 
 from aiogram.enums.chat_member_status import ChatMemberStatus
 
@@ -409,37 +409,50 @@ async def get_rp_balance(tg_id: int) -> int:
         return user or 0
 
 # Конвертация RP в дни или ГБ с проверкой лимитов
-async def convert_rp(tg_id: int, rp_amount: int, target: str) -> bool:
+async def convert_rp(
+    tg_id: int,
+    rp_amount: int,
+    target: str
+) -> bool:
     async with async_session_maker() as session:
-        result = await session.execute(select(User).where(User.tg_id == tg_id))
+        result = await session.execute(
+            select(User)
+            .where(User.tg_id == tg_id)
+            .with_for_update()
+        )
         user = result.scalar_one_or_none()
+
         if not user:
             return False
 
-        # Проверяем, что RP достаточно
+        # 1️⃣ RP
         if user.bonus_days_balance < rp_amount:
             return False
 
+        # 2️⃣ лимит
         if target == "days":
-            # Проверка лимита копилки дней
-            if user.rp_days_balance + rp_amount > user.rp_days_limit:
+            converted = rp_amount
+            if user.rp_days_limit < converted:
                 return False
-            user.bonus_days_balance -= rp_amount
-            user.rp_days_balance += rp_amount
-
-        elif target == "gb":
-            gb_amount = rp_amount * 1.5  # конвертация 1 RP = 1.5 GB
-            # Проверка лимита копилки GB
-            if user.rp_gb_balance + gb_amount > user.rp_gb_limit:
-                return False
-            user.bonus_days_balance -= rp_amount
-            user.rp_gb_balance += gb_amount
-
         else:
-            return False
+            converted = rp_amount * 2
+            if user.rp_gb_limit < converted:
+                return False
+
+        # 3️⃣ списываем
+        user.bonus_days_balance -= rp_amount
+
+        # 4️⃣ начисляем
+        if target == "days":
+            user.rp_days_balance += converted
+            user.rp_days_limit -= converted
+        else:
+            user.rp_gb_balance += converted
+            user.rp_gb_limit -= converted
 
         await session.commit()
         return True
+
     
 # баланс конвертированных дней в БД
 async def get_rp_days_balance(tg_id: int) -> int:
@@ -471,21 +484,20 @@ async def update_special_subscription_after_gb_apply(tg_id: int, used_gb: float)
         await session.commit()
         return True
     
-# Обнуление RP-дней после обновления подписки
-async def update_paid_subscription_with_rp_days(tg_id: int):
+async def get_days_limit(tg_id: int) -> int:
     async with async_session_maker() as session:
-        result = await session.execute(
-            select(User).where(User.tg_id == tg_id)
-        )
-        user = result.scalar_one_or_none()
+        return await session.scalar(
+            select(User.rp_days_limit)
+            .where(User.tg_id == tg_id)
+        ) or 0
 
-        if not user:
-            return False
 
-        user.rp_days_balance = 0
-        await session.commit()
-
-        return True
+async def get_gb_limit(tg_id: int) -> float:
+    async with async_session_maker() as session:
+        return await session.scalar(
+            select(User.rp_gb_limit)
+            .where(User.tg_id == tg_id)
+        ) or 0.0
 
 # Удаление RP (списание с баланса)
 async def remove_rp(tg_id: int, amount: int):
@@ -844,3 +856,252 @@ async def check_subscription_active(tg_id: int, tariff_code: str) -> bool:
             )
 
         return False
+    
+async def has_active_paid_subscription(tg_id: int) -> bool:
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(Subscriptions).where(Subscriptions.tg_id == tg_id)
+        )
+        subs = result.scalar_one_or_none()
+
+        if not subs:
+            return False
+
+        return any([
+            subs.base_active is True,
+            subs.bypass_active is True,
+            subs.multi_active is True
+        ])
+    
+async def get_user_subscriptions(tg_id: int) -> Subscriptions | None:
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(Subscriptions).where(Subscriptions.tg_id == tg_id)
+        )
+        return result.scalar_one_or_none()
+    
+def _is_active(sub: Subscriptions, sub_type: str) -> bool:
+    return getattr(sub, f"{sub_type}_active", False)
+
+async def has_active_subscription(tg_id: int, sub_type: str) -> bool:
+    if sub_type not in SUB_TYPES:
+        raise ValueError("Invalid subscription type")
+
+    sub = await get_user_subscriptions(tg_id)
+    if not sub:
+        return False
+
+    return _is_active(sub, sub_type)
+
+async def get_subscription_uuid(tg_id: int, sub_type: str) -> str | None:
+    if sub_type not in SUB_TYPES:
+        raise ValueError("Invalid subscription type")
+
+    sub = await get_user_subscriptions(tg_id)
+    if not sub:
+        return None
+
+    if not _is_active(sub, sub_type):
+        return None
+
+    return getattr(sub, f"{sub_type}_uuid")
+
+
+async def get_converted_balance(
+    tg_id: int,
+    resource_type: str
+) -> int | float:
+    if resource_type not in RESOURCE_TYPES:
+        raise ValueError("Invalid resource type")
+
+    async with async_session_maker() as session:
+        if resource_type == "days":
+            stmt = select(User.rp_days_balance).where(User.tg_id == tg_id)
+        else:
+            stmt = select(User.rp_gb_balance).where(User.tg_id == tg_id)
+
+        balance = await session.scalar(stmt)
+        return balance or 0
+
+async def can_apply_resource(
+    tg_id: int,
+    sub_type: str,
+    resource_type: str
+) -> bool:
+    if sub_type not in SUB_TYPES:
+        raise ValueError("Invalid subscription type")
+
+    if resource_type not in RESOURCE_TYPES:
+        raise ValueError("Invalid resource type")
+
+    # 1️⃣ разрешён ли ресурс для тарифа
+    if resource_type not in ALLOWED_RESOURCES[sub_type]:
+        return False
+
+    # 2️⃣ есть ли активная подписка
+    if not await has_active_subscription(tg_id, sub_type):
+        return False
+
+    # 3️⃣ есть ли баланс
+    balance = await get_converted_balance(tg_id, resource_type)
+    return balance > 0
+
+async def consume_converted_balance(
+    tg_id: int,
+    resource_type: str,
+    amount: int | float
+) -> bool:
+    if resource_type not in RESOURCE_TYPES:
+        raise ValueError("Invalid resource type")
+
+    async with async_session_maker() as session:
+        stmt = (
+            select(User)
+            .where(User.tg_id == tg_id)
+            .with_for_update()
+        )
+
+        user = await session.scalar(stmt)
+        if not user:
+            return False
+
+        if resource_type == "days":
+            if user.rp_days_balance < amount:
+                return False
+            user.rp_days_balance -= int(amount)
+
+        elif resource_type == "gb":
+            if user.rp_gb_balance < amount:
+                return False
+            user.rp_gb_balance -= float(amount)
+
+        await session.commit()
+        return True
+
+async def get_subscription_expire_date(
+    tg_id: int,
+    sub_type: str
+) -> datetime | None:
+    sub = await get_user_subscriptions(tg_id)
+    if not sub or not _is_active(sub, sub_type):
+        return None
+
+    return getattr(sub, f"{sub_type}_expire_date")
+
+async def get_active_subscription_data(
+    tg_id: int,
+    sub_type: str
+) -> dict | None:
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(Subscriptions)
+            .where(Subscriptions.tg_id == tg_id)
+        )
+        sub: Subscriptions | None = result.scalar_one_or_none()
+
+        if not sub:
+            return None
+
+        # =======================
+        # BASE VPN
+        # =======================
+        if sub_type == "base":
+            if not sub.base_active or not sub.base_uuid:
+                return None
+
+            return {
+                "uuid": sub.base_uuid,
+                "expire_date": sub.base_expire_date
+            }
+
+        # =======================
+        # BYPASS / WHITELIST
+        # =======================
+        if sub_type == "bypass":
+            if not sub.bypass_active or not sub.bypass_uuid:
+                return None
+
+            return {
+                "uuid": sub.bypass_uuid,
+                "expire_date": sub.bypass_expire_date
+            }
+
+        # =======================
+        # MULTI VPN
+        # =======================
+        if sub_type == "multi":
+            if not sub.multi_active or not sub.multi_uuid:
+                return None
+
+            return {
+                "uuid": sub.multi_uuid,
+                "expire_date": sub.multi_expire_date
+            }
+
+        return None
+    
+async def can_apply_resource_with_limit(
+    tg_id: int,
+    resource_type: str,
+    amount: int | float
+) -> bool:
+    async with async_session_maker() as session:
+        user = await session.get(User, tg_id)
+        if not user:
+            return False
+
+        if resource_type == "days":
+            return user.rp_days_limit >= int(amount)
+
+        if resource_type == "gb":
+            return user.rp_gb_limit >= float(amount)
+
+        return False
+
+async def consume_resource_limit(
+    tg_id: int,
+    resource_type: str,
+    amount: int | float
+) -> bool:
+    async with async_session_maker() as session:
+        stmt = (
+            select(User)
+            .where(User.tg_id == tg_id)
+            .with_for_update()
+        )
+        user = await session.scalar(stmt)
+        if not user:
+            return False
+
+        if resource_type == "days":
+            if user.rp_days_limit < amount:
+                return False
+            user.rp_days_limit -= int(amount)
+
+        elif resource_type == "gb":
+            if user.rp_gb_limit < amount:
+                return False
+            user.rp_gb_limit -= float(amount)
+
+        await session.commit()
+        return True
+
+async def update_subscription_expire_date(
+    tg_id: int,
+    sub_type: str,
+    new_expire: datetime
+) -> bool:
+    async with async_session_maker() as session:
+        result = await session.execute(
+            select(Subscriptions)
+            .where(Subscriptions.tg_id == tg_id)
+            .with_for_update()
+        )
+        sub = result.scalar_one_or_none()
+
+        if not sub:
+            return False
+
+        setattr(sub, f"{sub_type}_expire_date", new_expire)
+        await session.commit()
+        return True

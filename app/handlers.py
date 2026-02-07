@@ -19,13 +19,13 @@ import app.helpers as hp
 from app.services import cryptobot_api as cb
 from app.services import yookassa_api as yoo
 from app.services import remnawave_api as rm
-from config import BOT_USERNAME, TARIFFS, ADMIN_IDS, DEFAULT_DEVICES, DEVICES_MAX, DEVICES_MIN, DEVICES_STEP, SPECIAL_TARIFFS, MULTI_TARIFFS, PRICE_PER_DEVICE
-from app.states import CreatePromo, PromoActivate, ConvertRPStates
+from config import BOT_USERNAME, TARIFFS, ADMIN_IDS, DEFAULT_DEVICES, DEVICES_MAX, DEVICES_MIN, DEVICES_STEP, SPECIAL_TARIFFS, MULTI_TARIFFS, PRICE_PER_DEVICE, TOKEN
+from app.states import CreatePromo, PromoActivate, ConvertRPStates, RpUpgradeFSM
 from app.tasks import pay_notify as pn
 
 return_url = 'https://t.me/GrdVPNbot'
 router = Router()
-
+bot2 = Bot(token=TOKEN)
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Отдел необходимых для работы обработчиков функций и временных хранилищ
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -33,6 +33,69 @@ router = Router()
 ACTIVE_INVOICES = {}
 TEMP_MAILING = {}
 SESSION = {}
+
+def calc_max_rp_for_conversion(
+    *,
+    rp_balance: int,
+    limit: float,
+    target: str
+) -> int:
+    if limit <= 0:
+        return 0
+
+    if target == "days":
+        return min(rp_balance, int(limit))
+    else:
+        # gb: 1 RP = 2 GB
+        return min(rp_balance, math.floor(limit / 2))
+
+async def apply_rp_resource_and_render(
+    *,
+    tg_id: int,
+    sub_type: str,
+    resource_type: str,
+    amount: int | float,
+    chat_id: int,
+    message_id: int
+):
+    amount = int(amount)
+
+    caption_error = "❌ Не удалось обновить подписку"
+    caption_success = ("<b>✅ Выбранный ресурс был успешно добавлен</b>\n"
+                    "⚙️ Вы были возвращены в меню <b>Модернизации подписки</b>\n\n"
+                    "<blockquote>В былые времена рыцари укрепляли свои <b>доспехи</b> 🦾, чтобы уверенно идти в новые походы.\n\n"
+                    "Сегодня же ты можешь модернизировать свой <b>цифровой щит</b> 🛡\n\n Увеличивай кол-во <b>дней</b> ⏳ или доступных <b>ГБ</b> 🌐 и пользуйся VPN-подпиской дольше!</blockquote>\n\n"
+                    "<i> Выберите тип своей подписки ниже</i> 👇" 
+                )
+
+    result = await rm.apply_rp_resource(
+        tg_id=tg_id,
+        sub_type=sub_type,
+        resource_type=resource_type,
+        amount=amount
+    )
+
+    if result.get("status") == "success":
+        balance_ok = await hp.consume_converted_balance(
+            tg_id, resource_type, amount
+        )
+        caption = caption_success if balance_ok else caption_error
+    else:
+        caption = caption_error
+
+    await bot2.edit_message_media(
+        chat_id=chat_id,
+        message_id=message_id,
+        media=InputMediaPhoto(
+            media=FSInputFile("./assets/modern_knight.jpg"),
+            caption=caption,
+            parse_mode="HTML"
+        ),
+        reply_markup=kb.updatesub
+    )
+
+
+
 
 def fmt_date(d: str | None):
     if not d:
@@ -176,7 +239,7 @@ async def show_info(callback: CallbackQuery):
             "⚙️ <b>Сделано вручную</b>\n"
             "Проект создан одним разработчиком с акцентом на стабильность, простоту и честность.\n\n"
             "🌍 <b>Надёжные узлы</b>\n"
-            "Подключайся через проверенные сервера:\n🇺🇸 | 🇩🇪 | 🇳🇱 | 🇫🇮 | 🇷🇺 | 🇫🇷 | 🇵🇱 | 🇸🇪\n\n"
+            "Подключайся через проверенные сервера:\n🇺🇸 | 🇩🇪 | 🇳🇱 | 🇫🇮 | 🇷🇺 | 🇫🇷 | 🇵🇱 | 🇸🇪 | 🇪🇪\n\n"
             "🚀 <b>Быстро и просто</b>\n"
             "Подключение в один клик. Никаких сложных настроек — просто защита.\n\n"
             "❤️ <b>Миссия</b>\n"
@@ -272,6 +335,8 @@ async def referral(callback: CallbackQuery):
     # Баланс конвертированных ДНЕЙ и ГИГАБАЙТОВ (ты сам создал эти поля)
     days_balance = await hp.get_rp_days_balance(tg_id)
     gb_balance = await hp.get_rp_gb_balance(tg_id)
+    days_limit = await hp.get_days_limit(tg_id)
+    gb_limit = await hp.get_gb_limit(tg_id)
 
     # 🔹 Считаем количество приглашённых
     invited_count = await hp.get_invited_count(tg_id)
@@ -286,14 +351,16 @@ async def referral(callback: CallbackQuery):
         "<blockquote>🎁 <b>Бонусная программа</b></blockquote>\n\n"
         "Приглашая друзей, вы получаете <b>2 RP</b> за каждого приглашённого!\n\n"
         "<b>❗️ Чтобы получить бонус, приглашённый должен зарегистрироваться.</b>\n\n"
-        "<blockquote>💠<b> RP</b> - <i>это токены, являющиеся почти полноценной внутренней валютой этого сервиса.\n<b>Покупайте</b> или <b>продлевайте</b> свою подписку просто приглашая знакомых!\n\n"
-        "Здесь вы также можете конвертировать ваши <b>RP</b>\nв 📅дни / 📦гигабайты, которые можно будет добавить к действующей платной подписке!</i></blockquote>\n\n"
-        "<b>Курс: 1 RP = 1 день = 1.5 ГБ = 8₽</b>\n\n"
+        "<blockquote>💠<b> RP</b> - <i>это токены, являющиеся полноценной внутренней валютой этого сервиса.\n<b>Покупайте</b> или <b>продлевайте</b> свою подписку просто приглашая знакомых!\n\n"
+        "Здесь вы также можете конвертировать ваши <b>RP</b>\nв 📅 дни / 📦 гигабайты, которые можно будет добавить к действующей платной подписке!</i></blockquote>\n\n"
+        "<b>Курс: 1 RP = 1 день = 2 ГБ = 8₽</b>\n\n"
         f"<blockquote>📊 <b>Ваша статистика:</b>\n"
         f"✍🏿 <b>Всего приглашено:    {invited_count}</b>\n"
         f"💠 <b>Баланс RP:    {bonus_days_balance}</b>\n\n"
         f"📅 <b>Баланс дней:    {days_balance}</b>\n"
         f"📦 <b>Баланс гигабайтов:    {gb_balance}</b>\n\n"
+        f"📅 <b>Доступный лимит копилки дней:    {days_limit}</b>\n"
+        f"📦 <b>Доступный лимит копилки гигабайтов:    {gb_limit}</b>\n\n"
         f"🔗 <b>Ваша реферальная ссылка:</b>\n"
         f"<code>{ref_link}</code></blockquote>\n\n"
         "<i>Отправляйте ссылку друзьям и получайте RP!</i> 🫂"
@@ -320,10 +387,10 @@ async def update_sub(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
         caption=(
-            f"⚙️ <b>Модернизация подписки</b>\n\n"
-            f"<blockquote>В былые времена рыцари укрепляли свои <b>доспехи</b> 🦾, чтобы уверенно идти в новые походы.\n\n"
-            f"Сегодня же ты можешь модернизировать свой <b>цифровой щит</b> 🛡\n\n Увеличивай кол-во <b>дней</b> ⏳ или доступных <b>ГБ</b> 🌐 и пользуйся VPN-подпиской дольше!</blockquote>\n\n"
-            f"<i> Выберите тип своей подписки ниже</i> 👇"
+            "⚙️ <b>Модернизация подписки</b>\n\n"
+            "<blockquote>В былые времена рыцари укрепляли свои <b>доспехи</b> 🦾, чтобы уверенно идти в новые походы.\n\n"
+            "Сегодня же ты можешь модернизировать свой <b>цифровой щит</b> 🛡\n\n Увеличивай кол-во <b>дней</b> ⏳ или доступных <b>ГБ</b> 🌐 и пользуйся VPN-подпиской дольше!</blockquote>\n\n"
+            "<i> Выберите тип своей подписки ниже</i> 👇"
             ),
             parse_mode="HTML"
         ),
@@ -492,10 +559,8 @@ async def help(callback: CallbackQuery):
             media=photo,
             caption=(
                 "⚙️ <b>Ты попал в панель управления подписками.</b>\n\n"
-                "<blockquote> <b>Здесь ты можешь:</b>\n"
-                " <i>|+| 🛠️ Удалять/увеличивать устройства в подписках\n"
-                " |+| ➕ Отдельно докупать ГБ к подпискам с ограниченным трафиком\n"
-                " |+| ➕ Докупить небольшое кол-во дней по необходимости</i></blockquote>\n\n"
+                "<blockquote> <b>Здесь ты можешь:</b>\n\n"
+                " <i>|+| 🛠️ Удалять/увеличивать устройства в подписках</i></blockquote>\n\n"
                 "<i>Для старта выберите свой тип подписки</i> 👇"
             ),
             parse_mode="HTML"
@@ -687,6 +752,9 @@ async def add_device_start(callback: CallbackQuery):
     max_value = DEVICES_MAX
     step = DEVICES_STEP
 
+    photo_path = "./assets/settings_knight.jpg"
+    photo = FSInputFile(photo_path)
+
     # Сохраняем параметры селектора в SESSION
     SESSION[tg_id]["add_device"] = {
         "current": current_limit,   # ← ТЕПЕРЬ БЕРЁМ ИЗ subscription
@@ -703,16 +771,19 @@ async def add_device_start(callback: CallbackQuery):
         "• Уменьшать текущий лимит нельзя, возврат не производится.</blockquote>"
     )
 
-    await callback.message.edit_caption(
-        caption=caption,
+    await callback.message.edit_media(
+        InputMediaPhoto(
+            media=photo,
+            caption=caption,
+            parse_mode="HTML"
+        ),
         reply_markup=kb.add_device_selector_keyboard(
         user_id=tg_id,
         current=current_limit,
         min_value=current_limit,
         max_value=max_value,
-        step=step
-    ),
-        parse_mode="HTML"
+        step=step 
+        )
     )
 
     await callback.answer('📱 Добавление устройства')
@@ -876,6 +947,9 @@ async def add_device_continue(callback: CallbackQuery):
     price = ((remaining_days / 30) * 39) * dop_devices
     total_price = max(1, math.ceil(price))
 
+    photo_path = "./assets/confirm_knight.jpg"
+    photo = FSInputFile(photo_path)
+
     add["payment"] = {
         "provider": None,
         "amount": total_price,
@@ -896,10 +970,13 @@ async def add_device_continue(callback: CallbackQuery):
         "<i>Выберите способ оплаты</i> 👇"
     )
 
-    await callback.message.edit_caption(
-        caption=caption,
-        reply_markup=kb.add_device_confirm_keyboard(),
-        parse_mode="HTML"
+    await callback.message.edit_media(
+        InputMediaPhoto(
+            media=photo,
+            caption=caption,
+            parse_mode="HTML"
+        ),
+        reply_markup=kb.add_device_confirm_keyboard()
     )
 
     await callback.answer()
@@ -1017,8 +1094,8 @@ async def auto_check_add_device_payment_yookassa(
     *,
     tg_id: int,
     message: Message,
-    timeout: int = 10 * 60,   # 10 минут
-    interval: int = 12        # проверка раз в 12 сек
+    timeout: int = 10 * 60,
+    interval: int = 12
 ):
     start_ts = time.time()
 
@@ -1201,9 +1278,9 @@ async def add_device_pay_rp(callback: CallbackQuery):
 
     caption = (
         f"💸 <b>Оплата при помощи RP</b>\n\n"
-        f"🛒 Итоговая цена: <b>{amount}₽</b>\n"
+        f"<blockquote>🛒 Итоговая цена: <b>{amount}₽</b>\n"
         f"🟪 Стоимость в RP: <b>{amount_rp} RP</b>\n"
-        f"📦 Ваш баланс: <b>{user_rp} RP</b>\n\n"
+        f"📦 Ваш баланс: <b>{user_rp} RP</b></blockquote>\n\n"
         "❌ Отмена заказа вернёт вас в панель управления подпиской.\n\n"
         "<i>Подтвердить оплату RP?</i>"
     )
@@ -1290,9 +1367,8 @@ async def try_key(callback: CallbackQuery):
         )
         return
     
-    sub_type = await hp.get_active_subscription_type(tg_id)
-    if sub_type == "paid":
-        await callback.answer("⚠️boobs⚠️")
+    if await hp.has_active_paid_subscription(tg_id):
+        await callback.answer("⚠️ У вас есть активная платная подписка.")
 
         # Отправляем в главное меню
         photo_path = "./assets/continue_knight.jpg"
@@ -1302,8 +1378,9 @@ async def try_key(callback: CallbackQuery):
             media=InputMediaPhoto(
                 media=photo,
                 caption=(
-                    f"⚠️ <b>У вас уже есть активная платная подписка.</b>\n"
-                    f"🏡 <b>Вы вернулись в главное меню</b>\n\n"
+                    f"⚠️ <b>У вас есть активная платная подписка.</b>\n\n"
+                    f"<blockquote>🏡 <b>Вы были возвращены в главное меню</b>\n"
+                    "<i>Зачем пользоваться пробником меча, когда есть настоящий?</i></blockquote>\n\n"
                     f"<i>Выбери интересующий тебя вариант</i> 👇"
                 ),
                 parse_mode="HTML"
@@ -1332,7 +1409,7 @@ async def try_key(callback: CallbackQuery):
         end_str = end_date.strftime("%d.%m.%Y %H:%M")
 
         # Ссылка на подписку
-        sub_link = f"https://sub.grdguard.xyz/{user_data.get('shortUuid')}"
+        sub_link = f"https://subs.v2-the-guardian.work/{user_data.get('shortUuid')}"
 
         await callback.message.edit_media(
             media=InputMediaPhoto(
@@ -1341,6 +1418,7 @@ async def try_key(callback: CallbackQuery):
                     f"🏷️ <b>Пробный период активирован!</b>\n\n"
                     f"<blockquote>🕒 <b>Начало:</b> {start_str}\n"
                     f"⏳ <b>Окончание:</b> {end_str}\n"
+                    f"📱 <b>Кол-во устройств:</b> 1\n"
                     f"📦 <b>Трафик:</b> 30 ГБ\n\n"
                     f"🔗 <b>Подписка:</b> {sub_link}</blockquote>\n\n"
                     f"📖 <i>Инструкции по подключению — в разделе “Помощь💬”</i>"
@@ -1389,51 +1467,8 @@ async def back_main(callback: CallbackQuery):
 @router.callback_query(F.data == 'back_main5')
 async def back_main5(callback: CallbackQuery):
     await callback.answer('Назад')
+    await referral(callback)
 
-    tg_id = callback.from_user.id
-
-    # 🔹 Получаем реферальный код и бонусные дни асинхронно
-    ref_code = await hp.get_ref_code(tg_id)
-    bonus_days_balance = await hp.get_rp_balance(tg_id)
-
-    # Баланс конвертированных ДНЕЙ и ГИГАБАЙТОВ (ты сам создал эти поля)
-    days_balance = await hp.get_rp_days_balance(tg_id)
-    gb_balance = await hp.get_rp_gb_balance(tg_id)
-
-    # 🔹 Считаем количество приглашённых
-    invited_count = await hp.get_invited_count(tg_id)
-
-    # Формируем реферальную ссылку
-    ref_link = f"https://t.me/{BOT_USERNAME}?start={ref_code}"
-
-    photo_path = "./assets/referral_knight.jpg"
-    photo = FSInputFile(photo_path)
-
-    caption = (
-        "<blockquote>🎁 <b>Бонусная программа</b></blockquote>\n\n"
-        "Приглашая друзей, вы получаете <b>2 RP</b> за каждого приглашённого!\n\n"
-        "<b>❗️ Чтобы получить бонус, приглашённый должен зарегистрироваться.</b>\n\n"
-        "<blockquote>💠<b> RP</b> - <i>это токены, являющиеся почти полноценной внутренней валютой этого сервиса.\n<b>Покупайте</b> или <b>продлевайте</b> свою подписку просто приглашая знакомых!\n\n"
-        "Здесь вы также можете конвертировать ваши <b>RP</b>\nв 📅дни / 📦гигабайты, которые можно будет добавить к действующей платной подписке!</i></blockquote>\n\n"
-        "<b>Курс: 1 RP = 1 день = 1.5 ГБ = 8₽</b>\n\n"
-        f"<blockquote>📊 <b>Ваша статистика:</b>\n"
-        f"✍🏿 <b>Всего приглашено:    {invited_count}</b>\n"
-        f"💠 <b>Баланс RP:    {bonus_days_balance}</b>\n\n"
-        f"📅 <b>Баланс дней:    {days_balance}</b>\n"
-        f"📦 <b>Баланс гигабайтов:    {gb_balance}</b>\n\n"
-        f"🔗 <b>Ваша реферальная ссылка:</b>\n"
-        f"<code>{ref_link}</code></blockquote>\n\n"
-        "<i>Отправляйте ссылку друзьям и получайте RP!</i> 🫂"
-    )
-
-    await callback.message.edit_media(
-        media=InputMediaPhoto(
-            media=photo,
-            caption=caption,
-            parse_mode="HTML"
-        ),
-        reply_markup=kb.ref 
-    )
 
 # Возвращение в главное меню
 @router.callback_query(F.data == 'back_main')
@@ -1565,7 +1600,7 @@ async def tarif(callback: CallbackQuery):
                 "🛡 <b>Раздел расширенных возможностей и усиленной безопасности</b>\n\n"
                 "<blockquote><i>В данные тарифы не входят серверы, предназначенные для обхода белых списков 🚫\n\n"
                 "Они рассчитаны на более простые задачи и также подойдут пользователям из регионов, где ещё отсутствуют полноценные блокировки</i>\n\n"
-                "🌍 <b>Сервера</b>: 🇺🇸 | 🇩🇪 | 🇳🇱 | 🇫🇮 | 🇷🇺 | 🇫🇷 | 🇵🇱 | 🇸🇪</blockquote>\n\n"
+                "🌍 <b>Сервера</b>: 🇺🇸 | 🇩🇪 | 🇳🇱 | 🇫🇮 | 🇷🇺 | 🇫🇷 | 🇵🇱 | 🇸🇪 | 🇪🇪</blockquote>\n\n"
                 "🛣 <i>Ваш путь начинается здесь, просто двигайтесь вперёд...</i>"
             ),
             parse_mode="HTML"
@@ -1592,7 +1627,7 @@ async def tarif(callback: CallbackQuery):
             caption=(
                 "🥷 <b>Раздел специальных тарифов</b>\n\n"
                 "<blockquote><i>Режимы с расширенными возможностями обхода блокировок и улучшенной стабильностью подключения</i> 📶\n\n"
-                "🌍 <b>Сервера</b>:  🇷🇺 | 🇳🇱 | 🇫🇮 | 🇩🇪 | 🇫🇷 | 🇵🇱 | 🇸🇪</blockquote>\n\n"
+                "🌍 <b>Сервера</b>:  🇷🇺 | 🇪🇪 | 🇫🇮 | 🇩🇪 | 🇫🇷 | 🇵🇱 | 🇸🇪 | 🇳🇱</blockquote>\n\n"
                 "<i>Выбери тариф — и получи более свободный доступ к нужным ресурсам 👇</i>"
             ),
             parse_mode="HTML"
@@ -1619,7 +1654,7 @@ async def tarif(callback: CallbackQuery):
             caption=(
                 "💥 <b>Раздел мульти-доступа</b>\n\n"
                 "<blockquote><i>Это место, где вы можете получить доступ ко всем серверам сервиса в одной подписке</i> 🛜\n\n"
-                "🌍 <b>Сервера</b>: 🇺🇸 | 🇷🇺 | 🇳🇱 | 🇫🇮 | 🇩🇪 | 🇫🇷 | 🇵🇱 | 🇸🇪</blockquote>\n\n"
+                "🌍 <b>Сервера</b>: 🇺🇸 | 🇷🇺 | 🇳🇱 | 🇫🇮 | 🇩🇪 | 🇫🇷 | 🇵🇱 | 🇸🇪 | 🇪🇪</blockquote>\n\n"
                 "<i>Выбери тариф — и начни свой путь 👇</i>"
             ),
             parse_mode="HTML"
@@ -1641,9 +1676,10 @@ async def trysub(callback: CallbackQuery):
             caption=(
                 "🏆 <b>Тариф: Пробный</b>\n"
               "<blockquote>─────────────────────────────────\n"
-              "│ 🔖 <b>Описание:</b> Попробуй и реши, на чьей стороне ты!\n"
+              "│ 🔖 <b>Описание:</b> Ограниченный по времени доступ ко всем серверам сервиса\n"
               "│ 🗓  <b>Кол-во Дней:</b> 2\n"
               "│ 🌐 <b>Трафик:</b> 30 GB\n"
+              "│ 📱 <b>Кол-во устройств:</b> 1\n"
               "│ 💶 <b>Стоимость:</b> 0₽\n"
               "─────────────────────────────────</blockquote>"
             ),
@@ -1682,7 +1718,7 @@ async def handle_tariff_choice(callback: CallbackQuery):
         "step": DEVICES_STEP
     }
 
-    photo_path = "./assets/subs_cust_knight.jpg"
+    photo_path = "./assets/settings_knight.jpg"
     photo = FSInputFile(photo_path)
 
     await callback.message.edit_media(
@@ -1691,7 +1727,7 @@ async def handle_tariff_choice(callback: CallbackQuery):
             caption=(
                 f"⚙️ <b>Настройка тарифа: {tariff_code}</b>\n\n"
                 f"<blockquote>📱 Выберите количество устройств.\n"
-                f"➕ Цена за доп. устройство: <b>50₽ / мес</b></blockquote>\n\n"
+                f"➕ Цена за доп. устройство: <b>39₽ / мес</b></blockquote>\n\n"
                 f"<i>Выберите количество устройств 👇</i>"
             ),
             parse_mode="HTML"
@@ -1782,7 +1818,7 @@ async def devices_next(callback: CallbackQuery):
     else:
         invoice["final_price"] = full_price
 
-    photo_path = "./assets/subs_cust_knight.jpg"
+    photo_path = "./assets/confirm_knight.jpg"
     photo = FSInputFile(photo_path)
 
     text = (
@@ -1832,7 +1868,7 @@ async def back_to_tariffs(callback: CallbackQuery):
                 "↩️ <b>Вы вернулись на развилку.</b>\n\n"
                 "<blockquote><i>В данные тарифы не входят серверы, предназначенные для обхода белых списков 🚫\n\n"
                 "Они рассчитаны на более простые задачи и также подойдут пользователям из регионов, где ещё отсутствуют полноценные блокировки</i>\n\n"
-                "🌍 <b>Сервера</b>: 🇺🇸 | 🇩🇪 | 🇳🇱 | 🇫🇮 | 🇷🇺 | 🇫🇷 | 🇵🇱 | 🇸🇪</blockquote>\n\n"
+                "🌍 <b>Сервера</b>: 🇺🇸 | 🇩🇪 | 🇳🇱 | 🇫🇮 | 🇷🇺 | 🇫🇷 | 🇵🇱 | 🇸🇪 | 🇪🇪</blockquote>\n\n"
                 "🛣 <i>Путь продолжается — выберите дорогу, что поведёт вас дальше…</i>\n"
             )
     elif group == "special":
@@ -1841,7 +1877,7 @@ async def back_to_tariffs(callback: CallbackQuery):
         caption = (
                 "🥷 <b>Раздел специальных тарифов</b>\n\n"
                 "<blockquote><i>Режимы с расширенными возможностями обхода блокировок и улучшенной стабильностью подключения</i> 📶\n\n"
-                "🌍 <b>Сервера</b>:  🇷🇺 | 🇳🇱 | 🇫🇮 | 🇩🇪 | 🇫🇷 | 🇵🇱 | 🇸🇪</blockquote>\n\n"
+                "🌍 <b>Сервера</b>:  🇷🇺 | 🇪🇪 | 🇫🇮 | 🇩🇪 | 🇫🇷 | 🇵🇱 | 🇸🇪 | 🇳🇱</blockquote>\n\n"
                 "<i>Выбери тариф — и получи более свободный доступ к нужным ресурсам 👇</i>"
             )
     elif group == "multi":
@@ -1850,7 +1886,7 @@ async def back_to_tariffs(callback: CallbackQuery):
         caption = (
                 "💥 <b>Раздел мульти-доступа</b>\n\n"
                 "<blockquote><i>Это место, где вы можете получить доступ ко всем серверам сервиса в одной подписке</i> 🛜\n\n"
-                "🌍 <b>Сервера</b>: 🇺🇸 | 🇷🇺 | 🇳🇱 | 🇫🇮 | 🇩🇪 | 🇫🇷 | 🇵🇱 | 🇸🇪</blockquote>\n\n"
+                "🌍 <b>Сервера</b>: 🇺🇸 | 🇩🇪 | 🇳🇱 | 🇫🇮 | 🇷🇺 | 🇫🇷 | 🇵🇱 | 🇸🇪 | 🇪🇪</blockquote>\n\n"
                 "<i>Выбери тариф — и начни свой путь 👇</i>"
             )
     else:
@@ -1878,13 +1914,13 @@ async def back_to_devices(callback: CallbackQuery):
     tariff_code = invoice["tariff_code"]
     current = invoice["devices"]
 
-    photo_path = "./assets/subs_cust_knight.jpg"
+    photo_path = "./assets/settings_knight.jpg"
     photo = FSInputFile(photo_path)
 
     caption = (
         f"⚙️ <b>Настройка тарифа: {tariff_code}</b>\n\n"
         f"<blockquote>📱 Выберите количество устройств.\n"
-        f"➕ Цена за доп. устройство: <b>50₽ / мес</b></blockquote>\n\n"
+        f"➕ Цена за доп. устройство: <b>39₽ / мес</b></blockquote>\n\n"
         f"<i>Выберите количество устройств 👇</i>"
     )
 
@@ -1918,6 +1954,9 @@ async def confirm_order(callback: CallbackQuery):
     if not invoice:
         return await callback.answer("❌ Ошибка: заказ не найден")
     
+    photo_path = "./assets/oplata_knight.jpg"
+    photo = FSInputFile(photo_path)
+    
     invoice["last_step"] = "payment_methods"
 
     # Переход к выбору способа оплаты
@@ -1927,10 +1966,13 @@ async def confirm_order(callback: CallbackQuery):
         "<i>Выберите способ оплаты 👇</i>"
     )
 
-    await callback.message.edit_caption(
-        caption=text,
-        reply_markup=kb.payment_methods(invoice),  # ← клавиатура со способами оплаты
-        parse_mode="HTML"
+    await callback.message.edit_media(
+        InputMediaPhoto(
+            media=photo,
+            caption=text,
+            parse_mode="HTML"
+        ),
+        reply_markup=kb.payment_methods(invoice) 
     )
 
     await callback.answer('✅ Подтверждено')
@@ -1943,6 +1985,9 @@ async def go_back(callback: CallbackQuery):
     invoice = ACTIVE_INVOICES.get(tg_id)
     if not invoice:
         return await callback.answer("❌ Ошибка: заказ не найден")
+    
+    photo_path = "./assets/oplata_knight.jpg"
+    photo = FSInputFile(photo_path)
 
     # Возвращаем на выбор метода оплаты
     if step == "payment_methods":
@@ -1954,11 +1999,14 @@ async def go_back(callback: CallbackQuery):
             "<i>Выберите способ оплаты 👇</i>"
         )
 
-        await callback.message.edit_caption(
+        await callback.message.edit_media(
+        InputMediaPhoto(
+            media=photo,
             caption=text,
-            reply_markup=kb.payment_methods(invoice),
             parse_mode="HTML"
-        )
+        ),
+        reply_markup=kb.payment_methods(invoice) 
+    )
         return
 
 @router.callback_query(F.data.startswith("cancel:"))
@@ -2026,7 +2074,7 @@ async def handle_crypto_payment(callback: CallbackQuery):
         f"💸 <b>Оплата тарифа: {tariff_code}</b>\n\n"
         f"🛒 Общая сумма заказа: <b>{amount_rub}₽</b>\n"
         f"🌐 К оплате в CryptoBot: <b>{amount_usd}$</b>\n\n"
-        "После оплаты обязательно нажмите '🔄 Проверить оплату'\n\n"
+        "<b>После оплаты обязательно нажмите кнопку «🔄 Проверить оплату»</b>\n\n"
         "<i>Нажмите кнопку ниже, чтобы перейти к оплате 👇</i>"
     )
 
@@ -2081,7 +2129,7 @@ async def check_crypto_payment(callback: CallbackQuery):
     )
 
     sub_link = (
-        f"https://sub.grdguard.xyz/{user_data.get('shortUuid')}"
+        f"https://subs.v2-the-guardian.work/{user_data.get('shortUuid')}"
         if user_data.get("shortUuid")
         else "—"
     )
@@ -2095,6 +2143,7 @@ async def check_crypto_payment(callback: CallbackQuery):
             f"<blockquote>💎 <b>Тариф:</b> {tariff_code}\n\n"
             f"🕒 <b>Начало:</b> {start_date:%Y-%m-%d %H:%M}\n"
             f"⏳ <b>Окончание:</b> {end_date:%Y-%m-%d %H:%M}\n"
+            f"📱 <b>Кол-во устройств:</b> {hwid_limit}\n"
             f"🌐 <b>Трафик:</b> {tariff['traffic']}\n\n"
             f"📦 <b>Подписка:</b> {sub_link}</blockquote>\n\n"
             f"<i>Чтобы воспользоваться VPN нажмите '🔗 Подключить VPN' и следуйте инструкциям</i>"
@@ -2119,6 +2168,8 @@ async def check_crypto_payment(callback: CallbackQuery):
     is_extension = user_data["status"] == "extended"
 
     amount_rub = invoice_data.get("amount")
+    usd_rate = await cb.get_usd_rate()
+    amount_usd = round(amount_rub / usd_rate, 2)
     discount = invoice_data.get("discount")
 
     await pn.notify_purchase(
@@ -2126,10 +2177,11 @@ async def check_crypto_payment(callback: CallbackQuery):
         tg_id=tg_id,
         username=username,
         tariff_code=tariff_code,
-        amount=amount_rub,
+        amount=amount_usd,
         discount=discount,
         is_extension=is_extension,
-        expire_at=expire_at
+        expire_at=expire_at,
+        paid_with_crypto=True
     )
 
 
@@ -2190,7 +2242,7 @@ async def handle_yookassa_payment(callback: CallbackQuery):
     caption = (
         f"💸 <b>Оплата тарифа: {tariff_code}</b>\n\n"
         f"🛒 Общая сумма заказа: <b>{amount_rub}₽</b>\n\n"
-        "После оплаты обязательно нажмите '🔄 Проверить оплату'\n\n"
+        "<b>После оплаты обязательно нажмите кнопку «🔄 Проверить оплату»</b>\n\n"
         "<i>Нажмите кнопку ниже, чтобы оплатить 👇</i>"
     )
 
@@ -2248,7 +2300,7 @@ async def check_yookassa_payment(callback: CallbackQuery):
     )
 
     sub_link = (
-        f"https://sub.grdguard.xyz/{user_data.get('shortUuid')}"
+        f"https://subs.v2-the-guardian.work/{user_data.get('shortUuid')}"
         if user_data.get("shortUuid")
         else "—"
     )
@@ -2262,6 +2314,7 @@ async def check_yookassa_payment(callback: CallbackQuery):
             f"<blockquote>💎 <b>Тариф:</b> {tariff_code}\n\n"
             f"🕒 <b>Начало:</b> {start_date:%Y-%m-%d %H:%M}\n"
             f"⏳ <b>Окончание:</b> {end_date:%Y-%m-%d %H:%M}\n"
+            f"📱 <b>Кол-во устройств:</b> {hwid_limit}\n"
             f"🌐 <b>Трафик:</b> {tariff['traffic']}\n\n"
             f"📦 <b>Подписка:</b> {sub_link}</blockquote>\n\n"
             f"<i>Чтобы воспользоваться VPN нажмите '🔗 Подключить VPN' и следуйте инструкциям</i>"
@@ -2344,9 +2397,9 @@ async def handle_rp_payment(callback: CallbackQuery):
 
     caption = (
         f"💸 <b>Оплата тарифа: {tariff_code}</b>\n\n"
-        f"🛒 Итоговая цена: <b>{final_price}₽</b>\n"
+        f"<blockquote>🛒 Итоговая цена: <b>{final_price}₽</b>\n"
         f"🟪 Стоимость в RP: <b>{amount_rp} RP</b>\n"
-        f"📦 Ваш баланс: <b>{user_rp} RP</b>\n\n"
+        f"📦 Ваш баланс: <b>{user_rp} RP</b></blockquote>\n\n"
         "<i>Подтвердить оплату RP?</i>"
     )
 
@@ -2410,7 +2463,7 @@ async def check_rp_payment(callback: CallbackQuery):
 
     photo = FSInputFile(handler["photo"])
     sub_link = (
-        f"https://sub.grdguard.xyz/{user_data.get('shortUuid')}"
+        f"https://subs.v2-the-guardian.work/{user_data.get('shortUuid')}"
         if user_data.get("shortUuid")
         else "—"
     )
@@ -2421,6 +2474,7 @@ async def check_rp_payment(callback: CallbackQuery):
             f"<blockquote>💎 <b>Тариф:</b> {tariff_code}\n\n"
             f"🕒 <b>Начало:</b> {start_date:%Y-%m-%d %H:%M}\n"
             f"⏳ <b>Окончание:</b> {end_date:%Y-%m-%d %H:%M}\n"
+            f"📱 <b>Кол-во устройств:</b> {hwid_limit}\n"
             f"🌐 <b>Трафик:</b> {tariff['traffic']}\n\n"
             f"📦 <b>Подписка:</b> {sub_link}</blockquote>\n\n"
             f"<i>Чтобы воспользоваться VPN нажмите '🔗 Подключить VPN' и следуйте инструкциям</i>"
@@ -2665,73 +2719,189 @@ async def cancel_promo(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.message.edit_text("❌ Отмена")
 
-# патчим подписку если есть возможность ДНИ
-@router.callback_query(F.data == "basevpn")
-async def update_paid_subscription(callback: CallbackQuery):
+# Модернизация подписки
+@router.callback_query(F.data.startswith("rp:upgrade:"))
+async def rp_enter_fsm(callback: CallbackQuery, state: FSMContext):
     tg_id = callback.from_user.id
+    sub_type = callback.data.split(":")[-1]
 
-    # Проверяем наличие подписки и кол-во дней
-    data = await hp.check_paid_subscription_and_days(tg_id)
-    if not data:
+    if not await hp.has_active_subscription(tg_id, sub_type):
         return await callback.answer(
-            "❗ Активная платная подписка не найдена или баланс дней пуст.", 
+            "❌ Активная подписка не найдена",
             show_alert=True
         )
 
-    # Патчим подписку
-    result = await rm.apply_rp_days(tg_id)
+    # ✅ BASE — сразу спрашиваем КОЛИЧЕСТВО ДНЕЙ
+    if sub_type == "base":
+        balance = await hp.get_converted_balance(tg_id, "days")
 
-    if result["status"] == "success":
-        return await callback.answer(
-            f"✅ Дни успешно добавлены!\n"
-            f"Новая дата окончания:\n"
-            f"{result['new_expire'].strftime('%Y-%m-%d %H:%M')}",
-            show_alert=True
+        await state.set_state(RpUpgradeFSM.choosing_amount)
+        await state.update_data(
+            sub_type="base",
+            resource_type="days",
+            bot_message_id=callback.message.message_id,
+            chat_id=callback.message.chat.id
         )
 
-    if result["status"] == "api_error":
-        return await callback.answer(
-            "❌ Ошибка API при обновлении подписки.",
-            show_alert=True
+        await callback.message.edit_caption(
+            caption=(
+                "✏️ <b>Введите количество дней для добавления</b>\n\n"
+                "<blockquote><b>Минимальные значения для добавления:</b>\n"
+                "|+| <b>1 день</b>\n\n"
+                f"Доступно: <b>{balance}</b></blockquote>"
+            ),
+            parse_mode="HTML",
+            reply_markup=kb.rp_amount_back_kb
         )
+        return await callback.answer()
 
-    return await callback.answer(
-        "❌ Не удалось обновить подписку.",
-        show_alert=True
+    # остальное без изменений
+    await state.set_state(RpUpgradeFSM.choosing_resource)
+    await state.update_data(sub_type=sub_type)
+
+    await callback.message.edit_caption(
+        caption=(
+            "🔄 <b>Модернизация подписки</b>\n\n"
+            "Выберите, что хотите добавить:"
+        ),
+        reply_markup=kb.rp_resource_choice_kb(sub_type),
+        parse_mode="HTML"
     )
 
-@router.callback_query(F.data == "obhodwl")
-async def update_special_subscription(callback: CallbackQuery):
+    await callback.answer()
+
+@router.callback_query(
+    RpUpgradeFSM.choosing_resource,
+    F.data.startswith("rp:add:")
+)
+async def rp_choose_resource(callback: CallbackQuery, state: FSMContext):
+    resource = callback.data.split(":")[-1]  # days | gb
     tg_id = callback.from_user.id
 
-    # Проверяем наличие спец-подписки и ГБ
-    data = await hp.check_special_subscription_and_gb(tg_id)
-    if not data:
+    data = await state.get_data()
+    sub_type = data["sub_type"]
+
+    # только базовая валидация
+    if not await hp.can_apply_resource(tg_id, sub_type, resource):
         return await callback.answer(
-            "❗ Активная подписка Обход Whitelists не найдена или баланс ГБ пуст.",
+            "❌ Нельзя применить этот ресурс",
             show_alert=True
         )
 
-    # Патчим лимит ГБ через API + обнуляем баланс
-    result = await rm.apply_rp_gb(tg_id)
+    await state.update_data(resource_type=resource)
+    await state.set_state(RpUpgradeFSM.choosing_amount)
 
-    if result["status"] == "success":
-        return await callback.answer(
-            "✅ Гигабайты успешно добавлены!\n"
-            "Новый доступный лимит обновлён.",
-            show_alert=True
-        )
+    balance = await hp.get_converted_balance(tg_id, resource)
 
-    if result["status"] == "api_error":
-        return await callback.answer(
-            "❌ Ошибка API при обновлении лимита.",
-            show_alert=True
-        )
-
-    return await callback.answer(
-        "❌ Не удалось обновить подписку.",
-        show_alert=True
+    await state.update_data(
+        sub_type=sub_type,
+        resource_type=resource,
+        bot_message_id=callback.message.message_id,
+        chat_id=callback.message.chat.id
     )
+
+    await state.set_state(RpUpgradeFSM.choosing_amount)
+
+    await callback.message.edit_caption(
+        caption=(
+            "✏️ <b>Введите количество для добавления</b>\n\n"
+            "<blockquote><b>Минимальные значения для добавления:</b>\n\n"
+            "|+| <b>2 ГБ</b>\n"
+            "|+| <b>1 день</b>\n\n"
+            f"Доступно: <b>{balance}</b></blockquote>"
+        ),
+        parse_mode="HTML",
+        reply_markup=kb.rp_amount_back_kb
+    )
+
+    await callback.answer()
+
+@router.callback_query(
+    RpUpgradeFSM.choosing_amount,
+    F.data == "rp:amount:back"
+)
+async def rp_amount_back(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    sub_type = data["sub_type"]
+
+    # 🔙 Если BASE — сразу в меню апгрейда
+    if sub_type == "base":
+        await callback.answer('Назад')
+        await update_sub(callback)
+        await state.clear()
+        return
+
+    # 🔙 Иначе — к выбору ресурса
+    await state.set_state(RpUpgradeFSM.choosing_resource)
+
+    await callback.message.edit_caption(
+        caption=(
+            "🔄 <b>Модернизация подписки</b>\n\n"
+            "Выберите, что хотите добавить:"
+        ),
+        reply_markup=kb.rp_resource_choice_kb(sub_type),
+        parse_mode="HTML"
+    )
+
+    await callback.answer()
+
+# Ввод количества добавляемого ресурса
+@router.message(RpUpgradeFSM.choosing_amount)
+async def rp_choose_amount(message: Message, state: FSMContext):
+    data = await state.get_data()
+
+    tg_id = message.from_user.id
+    resource_type = data["resource_type"]
+    sub_type = data["sub_type"]
+    bot_message_id = data["bot_message_id"]
+    chat_id = data["chat_id"]
+
+    # --- парсинг ---
+    try:
+        amount = int(message.text.strip())
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        await message.delete()
+        return
+
+    # 🚫 МИНИМУМ ДЛЯ GB
+    if resource_type == "gb" and amount < 2:
+        await message.delete()
+        await bot2.send_message(
+            chat_id,
+            "❌ Минимальное количество для добавления — <b>2 ГБ</b>",
+            parse_mode="HTML"
+        )
+        return
+
+    balance = await hp.get_converted_balance(tg_id, resource_type)
+    if amount > balance:
+        await message.delete()
+        return
+
+    await state.clear()
+
+    await apply_rp_resource_and_render(
+        tg_id=tg_id,
+        sub_type=sub_type,
+        resource_type=resource_type,
+        amount=amount,
+        chat_id=chat_id,
+        message_id=bot_message_id
+    )
+
+    try:
+        await message.delete()
+    except:
+        pass
+
+
+@router.callback_query(F.data == "modernback")
+async def back_add(callback: CallbackQuery, state: FSMContext):
+    await callback.answer('Назад')
+    await update_sub(callback)
+    await state.clear()
 
 # Начало конвертации поинтов
 @router.callback_query(F.data == "start_conversion")
@@ -2780,167 +2950,152 @@ async def choose_resource(callback: CallbackQuery, state: FSMContext):
     )
     await state.set_state(ConvertRPStates.choose_amount_type)
 
-# Выбор количества (мин/макс/частично)
-from aiogram.exceptions import TelegramBadRequest
-
 # Выбор количества (MIN/MAX/PARTIAL)
 @router.callback_query(F.data.startswith("amount_"), ConvertRPStates.choose_amount_type)
 async def choose_amount(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     target = data.get("target_resource")
     user_id = callback.from_user.id
-    balance = await hp.get_rp_balance(user_id)
+
+    rp_balance = await hp.get_rp_balance(user_id)
+
+    # 🔽 получаем лимит
+    if target == "days":
+        limit = await hp.get_days_limit(user_id)
+        min_rp = 1
+    else:
+        limit = await hp.get_gb_limit(user_id)
+        min_rp = 1
+
+    max_rp = calc_max_rp_for_conversion(
+        rp_balance=rp_balance,
+        limit=limit,
+        target=target
+    )
+
+    # лимит кончился
+    if max_rp <= 0:
+        await state.clear()
+        return await callback.message.edit_text(
+            "❌ Конвертация невозможна.",
+            reply_markup=kb.back1
+        )
 
     # --- MIN ---
     if callback.data == "amount_min":
-        rp_amount = 2
+        rp_amount = min_rp
+        if rp_amount > max_rp:
+            return await callback.answer(
+                "❌ Недостаточно лимита для минимальной конвертации.",
+                show_alert=True
+            )
 
     # --- MAX ---
     elif callback.data == "amount_max":
-        rp_amount = balance
+        rp_amount = max_rp
 
     # --- PARTIAL ---
     elif callback.data == "amount_partial":
-        # изменить текущее сообщение — сохранить ID этого сообщения для удаления позже
-        try:
-            msg = await callback.message.edit_text(
-                f"✏️ <b>Введите количество RP для конвертации: </b>\n\n"
-                f"<blockquote><b>Ваш баланс: {balance} RP</b>\n"
-                f"<b>Минимум: 2 RP</b></blockquote>",
-                reply_markup=kb.back_conversion_step_kb,
-                parse_mode='HTML'
-            )
-        except TelegramBadRequest as e:
-            if "message is not modified" in str(e):
-                msg = callback.message
-            else:
-                raise
+        await state.update_data(
+            max_rp=max_rp,
+            min_rp=min_rp
+        )
 
-        # сохраняем ID сообщения (именно этого бота-сообщения)
+        msg = await callback.message.edit_text(
+            f"✏️ <b>Введите количество RP для конвертации:</b>\n\n"
+            f"<blockquote>"
+            f"Баланс: <b>{rp_balance} RP</b>\n"
+            f"Доступно по лимиту: <b>{max_rp} RP</b>\n"
+            f"Минимум: <b>{min_rp} RP</b>"
+            f"</blockquote>",
+            reply_markup=kb.back_conversion_step_kb,
+            parse_mode="HTML"
+        )
+
         await state.update_data(prompt_msg_id=msg.message_id)
-
         await state.set_state(ConvertRPStates.enter_custom_amount)
         return
 
     else:
         await state.clear()
-        return await callback.message.answer(
-            "❌ Конвертация отменена.",
-            reply_markup=kb.back1
-        )
+        return await callback.answer("❌ Отмена")
 
-    # MIN / MAX — выполняем конвертацию
+    # ▶️ выполняем конвертацию
     success = await hp.convert_rp(user_id, rp_amount, target)
     await state.clear()
 
     if not success:
         return await callback.message.edit_text(
-            "❌ Конвертация невозможна.\nПричина: недостаточно RP или превышен лимит копилки.",
-            reply_markup=kb.back1,
-            parse_mode='HTML'
+            "❌ Конвертация невозможна.",
+            reply_markup=kb.back1
         )
 
-    # Рассчитываем результат
-    if target == "days":
-        converted = rp_amount
-        resource = "дней"
-    else:
-        converted = rp_amount * 1.5
-        resource = "ГБ"
+    converted = rp_amount if target == "days" else rp_amount * 2
+    resource = "дней" if target == "days" else "ГБ"
 
-    # Редактируем текущее сообщение с результатом; если нет изменений — игнорируем ошибку
-    try:
-        await callback.message.edit_text(
-            "✨ <b>Конвертация завершена</b>\n\n"
-            f"<blockquote>🔸 Потрачено: <b>{rp_amount} RP</b>\n"
-            f"🔹 Получено: <b>{converted} {resource}</b></blockquote>",
-            reply_markup=kb.back1,
-            parse_mode='HTML'
-        )
-    except TelegramBadRequest as e:
-        # игнорируем "message is not modified"
-        if "message is not modified" not in str(e):
-            raise
-
+    await callback.message.edit_text(
+        "✨ <b>Конвертация завершена</b>\n\n"
+        f"<blockquote>"
+        f"🔸 Потрачено: <b>{rp_amount} RP</b>\n"
+        f"🔹 Получено: <b>{converted} {resource}</b>"
+        f"</blockquote>",
+        reply_markup=kb.back1,
+        parse_mode="HTML"
+    )
 
 # Ввод RP вручную
 @router.message(ConvertRPStates.enter_custom_amount)
 async def enter_custom_amount(message: Message, state: FSMContext):
     data = await state.get_data()
-    prompt_msg_id = data.get("prompt_msg_id")
-    target = data.get("target_resource")
-    user_id = message.from_user.id
-    balance = await hp.get_rp_balance(user_id)
+    prompt_msg_id = data["prompt_msg_id"]
+    target = data["target_resource"]
+    max_rp = data["max_rp"]
+    min_rp = data["min_rp"]
 
-    # --- Парсинг числа ---
     try:
         rp_amount = int(message.text.strip())
     except ValueError:
+        return await message.answer("❌ Введите число.")
+
+    if rp_amount < min_rp:
         return await message.answer(
-            "❌ Введите корректное число.",
-            reply_markup=kb.back_conversion_step_kb
+            f"❌ Минимум {min_rp} RP."
         )
 
-    if rp_amount < 2:
+    if rp_amount > max_rp:
         return await message.answer(
-            "⚠️ Минимальная конвертация — 2 RP.",
-            reply_markup=kb.back_conversion_step_kb
+            f"❌ Доступно максимум {max_rp} RP."
         )
 
-    if rp_amount > balance:
-        return await message.answer(
-            f"❌ Недостаточно RP. Баланс: {balance} RP",
-            reply_markup=kb.back_conversion_step_kb
-        )
-
-    # --- Конвертация ---
-    success = await hp.convert_rp(user_id, rp_amount, target)
+    success = await hp.convert_rp(message.from_user.id, rp_amount, target)
     await state.clear()
 
     if not success:
-        # Заменяем сообщение-подсказку на ошибку
-        try:
-            await message.bot.edit_message_text(
-                chat_id=message.chat.id,
-                message_id=prompt_msg_id,
-                text="❌ Конвертация невозможна.\nПричина: недостаточно RP или превышен лимит.",
-                reply_markup=kb.back1,
-                parse_mode='HTML'
-            )
-        except TelegramBadRequest:
-            pass
-        await message.delete()
-        return
-
-    # --- Вычисляем результат ---
-    if target == "days":
-        converted = rp_amount
-        resource = "дней"
-    else:
-        converted = rp_amount * 1.5
-        resource = "ГБ"
-
-    # --- Удаляем сообщение пользователя (число) ---
-    try:
-        await message.delete()
-    except TelegramBadRequest:
-        pass
-
-    # --- ЗАМЕНЯЕМ подсказку итогом (а не создаём новое сообщение!) ---
-    try:
-        await message.bot.edit_message_text(
+        return await message.bot.edit_message_text(
             chat_id=message.chat.id,
             message_id=prompt_msg_id,
-            text=(
-                "✨ <b>Конвертация завершена</b>\n\n"
-                f"<blockquote>🔸 Потрачено: <b>{rp_amount} RP</b>\n"
-                f"🔹 Получено: <b>{converted} {resource}</b></blockquote>"
-            ),
-            reply_markup=kb.back1,
-            parse_mode='HTML'
+            text="❌ Конвертация невозможна.",
+            reply_markup=kb.back1
         )
-    except TelegramBadRequest:
-        pass
+
+    converted = rp_amount if target == "days" else rp_amount * 2
+    resource = "дней" if target == "days" else "ГБ"
+
+    await message.bot.edit_message_text(
+        chat_id=message.chat.id,
+        message_id=prompt_msg_id,
+        text=(
+            "✨ <b>Конвертация завершена</b>\n\n"
+            f"<blockquote>"
+            f"🔸 Потрачено: <b>{rp_amount} RP</b>\n"
+            f"🔹 Получено: <b>{converted} {resource}</b>"
+            f"</blockquote>"
+        ),
+        reply_markup=kb.back1,
+        parse_mode="HTML"
+    )
+
+    await message.delete()
 
 
 # 1) Команда запуска рассылки

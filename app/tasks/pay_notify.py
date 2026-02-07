@@ -10,7 +10,8 @@ async def notify_purchase(
     discount: int | None,
     is_extension: bool,
     expire_at: str,
-    paid_with_tokens: bool = False
+    paid_with_tokens: bool = False,
+    paid_with_crypto: bool = False
 ):
     """Отправка уведомления о новой покупке/продлении в канал админов"""
 
@@ -18,8 +19,10 @@ async def notify_purchase(
     type_text = "Продление" if is_extension else "Новая подписка"
 
     # ➜ Формируем сумму по типу оплаты
-    if paid_with_tokens:
+    if paid_with_tokens == True:
         amount_text = f"{amount} RP"
+    elif paid_with_crypto == True:
+        amount_text = f"{amount}${discount_text}"
     else:
         amount_text = f"{amount}₽{discount_text}"
 
