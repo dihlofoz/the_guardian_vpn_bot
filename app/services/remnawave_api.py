@@ -5,7 +5,6 @@ import re
 import httpx
 from typing import List, Dict
 from app import helpers as hp
-from app.db.dealer import async_session_maker
 from sqlalchemy import select
 
 # Константа с эндпоинтом пользователей
@@ -25,7 +24,7 @@ async def create_trial_user(telegram_id: int):
         "trafficLimitStrategy": "NO_RESET",
         "telegramId": telegram_id,
         "email": f"{username}@trial.remna",
-        "hwidDeviceLimit": 1,
+        "hwidDeviceLimit": 3,
         "activeInternalSquads": [SQUAD_ID_TRIAL],
         "description": f"Trial"
     }
