@@ -4,23 +4,23 @@ from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
 
 main = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='VPN 🚀', callback_data='connectvpn'), 
-    InlineKeyboardButton(text='Профиль 👤', callback_data='profile'),
-    InlineKeyboardButton(text='Помощь 💬', callback_data='help')],
-    [InlineKeyboardButton(text='🧬 Реферальная программа', callback_data='referral')],
-    [InlineKeyboardButton(text='ℹ️ О нас', callback_data='info'),
-    InlineKeyboardButton(text='📢 Канал', url='https://t.me/grdVPNnews')]
+    [InlineKeyboardButton(text='VPN', callback_data='connectvpn', icon_custom_emoji_id=5188481279963715781), 
+    InlineKeyboardButton(text='Профиль', callback_data='profile', icon_custom_emoji_id=5373012449597335010),
+    InlineKeyboardButton(text='Помощь', callback_data='help', icon_custom_emoji_id=5465300082628763143)],
+    [InlineKeyboardButton(text='Реферальная программа', callback_data='referral', icon_custom_emoji_id=5355270175920763448)],
+    [InlineKeyboardButton(text='О нас', callback_data='info', icon_custom_emoji_id=5334544901428229844),
+    InlineKeyboardButton(text='Канал', url='https://t.me/grdVPNnews', icon_custom_emoji_id=5424818078833715060)]
 ])
 
 vpn = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='🎟 Пробный период', callback_data='trysub')],
-    [InlineKeyboardButton(text='💳 Купить тариф', callback_data='tarif')],
+    [InlineKeyboardButton(text='Пробный период', callback_data='trysub', icon_custom_emoji_id=5377599075237502153)],
+    [InlineKeyboardButton(text='Купить тариф', callback_data='tarif', icon_custom_emoji_id=5445353829304387411)],
     [InlineKeyboardButton(text='← Назад', callback_data='back_main')]
 ])
 
 help = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='📖 F.A.Q.', url='https://telegra.ph/Instrukciya--FAQ-10-27')],
-    [InlineKeyboardButton(text='✉️ Написать в поддержку', url='https://t.me/suppgrdvpn')],
+    [InlineKeyboardButton(text='F.A.Q.', url='https://telegra.ph/Instrukciya--FAQ-10-27', icon_custom_emoji_id=5226512880362332956)],
+    [InlineKeyboardButton(text='Написать в поддержку', url='https://t.me/suppgrdvpn', icon_custom_emoji_id=5253742260054409879)],
     [InlineKeyboardButton(text='← Назад', callback_data='back_main')]
 ])
 
@@ -33,30 +33,33 @@ back1 = InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 back_conversion_step_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_amount_choice")]
+        [InlineKeyboardButton(text="← Назад", callback_data="back_to_amount_choice")]
 ])
 
 ref = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='🔄 Конвертировать RP', callback_data='start_conversion')],
-    [InlineKeyboardButton(text='⚙️ Модернизировать подписку', callback_data='updatesub')],
+    [InlineKeyboardButton(text='Конвертировать RP', callback_data='start_conversion', icon_custom_emoji_id=5264727218734524899)],
+    [InlineKeyboardButton(text='Модернизировать подписку', callback_data='updatesub', icon_custom_emoji_id=5341715473882955310)],
     [InlineKeyboardButton(text='← Назад', callback_data='back_main')]
 ])
 
 updatesub = InlineKeyboardMarkup(inline_keyboard=[
     [
         InlineKeyboardButton(
-            text='Базовый VPN 🪴',
-            callback_data='rp:upgrade:base'
+            text='Базовый VPN',
+            callback_data='rp:upgrade:base',
+            icon_custom_emoji_id=5278428495121248059
         ),
         InlineKeyboardButton(
-            text='Обход Whitelists 🥷',
-            callback_data='rp:upgrade:bypass'
+            text='Обход Whitelists',
+            callback_data='rp:upgrade:bypass',
+            icon_custom_emoji_id=5420266513011579594
         )
     ],
     [
         InlineKeyboardButton(
-            text='Мульти VPN 💥',
-            callback_data='rp:upgrade:multi'
+            text='Мульти VPN',
+            callback_data='rp:upgrade:multi',
+            icon_custom_emoji_id=5276032951342088188
         )
     ],
     [
@@ -126,36 +129,36 @@ sub = InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 tarifs = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="Базовый VPN 🪴", callback_data="tariffs_basic"), 
-    InlineKeyboardButton(text="Обход Whitelists 🥷", callback_data="tariffs_special")],
-    [InlineKeyboardButton(text='Мульти VPN 💥', callback_data='tariffs_multi')],
+    [InlineKeyboardButton(text="Базовый VPN", callback_data="tariffs_basic", icon_custom_emoji_id=5278428495121248059), 
+    InlineKeyboardButton(text="Обход Whitelists", callback_data="tariffs_special", icon_custom_emoji_id=5420266513011579594)],
+    [InlineKeyboardButton(text='Мульти VPN', callback_data='tariffs_multi', icon_custom_emoji_id=5276032951342088188)],
     [InlineKeyboardButton(text="← Назад", callback_data="back_main1"),
-    InlineKeyboardButton(text='🏠 На старт', callback_data='back_main2')]
+    InlineKeyboardButton(text='На старт', callback_data='back_main2', icon_custom_emoji_id=5465226866321268133)]
 ])
 
 tariffs_b = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='🍼 1 месяц - 109₽', callback_data='1 месяц')],
-    [InlineKeyboardButton(text='⚡️ 3 месяца - 319₽', callback_data='3 месяца')],
-    [InlineKeyboardButton(text='🦾 6 месяцев - 689₽', callback_data='6 месяцев')],
-    [InlineKeyboardButton(text='🪖 9 месяцев - 1049₽', callback_data='9 месяцев')], 
-    [InlineKeyboardButton(text='💎 12 месяцев - 1369₽', callback_data='12 месяцев')],
+    [InlineKeyboardButton(text='1 месяц - 109₽', callback_data='1 месяц', icon_custom_emoji_id=5411128690916467494)],
+    [InlineKeyboardButton(text='3 месяца - 319₽', callback_data='3 месяца', icon_custom_emoji_id=5431449001532594346)],
+    [InlineKeyboardButton(text='6 месяцев - 689₽', callback_data='6 месяцев', icon_custom_emoji_id=5386766919154016047)],
+    [InlineKeyboardButton(text='9 месяцев - 1049₽', callback_data='9 месяцев', icon_custom_emoji_id=5433787452311484697)], 
+    [InlineKeyboardButton(text='12 месяцев - 1369₽', callback_data='12 месяцев', icon_custom_emoji_id=5427168083074628963)],
     [InlineKeyboardButton(text='← Назад', callback_data='back_main3'),
-    InlineKeyboardButton(text='🏠 На старт', callback_data='back_main2')]
+    InlineKeyboardButton(text='На старт', callback_data='back_main2', icon_custom_emoji_id=5465226866321268133)]
 ])
 
 tariffs_s = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='🍼 7 дней - 59₽', callback_data='7 дней (50 GB)')],
-    [InlineKeyboardButton(text='⚡️ 14 дней - 99₽', callback_data='14 дней (100 GB)')],
-    [InlineKeyboardButton(text='💎 30 дней - 169₽', callback_data='30 дней (200 GB)')],
+    [InlineKeyboardButton(text='7 дней - 59₽', callback_data='7 дней (50 GB)', icon_custom_emoji_id=5411128690916467494)],
+    [InlineKeyboardButton(text='14 дней - 99₽', callback_data='14 дней (100 GB)', icon_custom_emoji_id=5431449001532594346)],
+    [InlineKeyboardButton(text='30 дней - 169₽', callback_data='30 дней (200 GB)', icon_custom_emoji_id=5427168083074628963)],
     [InlineKeyboardButton(text='← Назад', callback_data='back_main3'),
-    InlineKeyboardButton(text='🏠 На старт', callback_data='back_main2')]
+    InlineKeyboardButton(text='На старт', callback_data='back_main2', icon_custom_emoji_id=5465226866321268133)]
 ])
 
 tariffs_m = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='🍼 1 месяц - 209₽', callback_data='1 месяц (300 GB)')],
-    [InlineKeyboardButton(text='⚡️ 3 месяца - 589₽', callback_data='3 месяца (900 GB)')],
+    [InlineKeyboardButton(text='1 месяц - 209₽', callback_data='1 месяц (300 GB)', icon_custom_emoji_id=5411128690916467494)],
+    [InlineKeyboardButton(text='3 месяца - 589₽', callback_data='3 месяца (900 GB)', icon_custom_emoji_id=5431449001532594346)],
     [InlineKeyboardButton(text='← Назад', callback_data='back_main3'),
-    InlineKeyboardButton(text='🏠 На старт', callback_data='back_main2')]
+    InlineKeyboardButton(text='На старт', callback_data='back_main2', icon_custom_emoji_id=5465226866321268133)]
 ])
 
 continue_btn_new = InlineKeyboardMarkup(inline_keyboard=[
@@ -167,12 +170,12 @@ continue_btn_existing = InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 agree_btn = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="✅ Соглашаюсь", callback_data="agree")]
+    [InlineKeyboardButton(text="Соглашаюсь", callback_data="agree", icon_custom_emoji_id=5206607081334906820)]
 ])
 
 infokey = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='📝Условия использования', url='https://telegra.ph/Pravila-ispolzovaniya-10-18')],
-    [InlineKeyboardButton(text='📝Политика конфиденциальности', url='https://telegra.ph/Politika-konfidencialnosti-10-18-58')],
+    [InlineKeyboardButton(text='Условия использования', url='https://telegra.ph/Pravila-ispolzovaniya-10-18', icon_custom_emoji_id=5334882760735598374)],
+    [InlineKeyboardButton(text='Политика конфиденциальности', url='https://telegra.ph/Politika-konfidencialnosti-10-18-58', icon_custom_emoji_id=5334882760735598374)],
     [InlineKeyboardButton(text='← Назад', callback_data='back_main')]
 ])
 
@@ -181,72 +184,68 @@ def payment_methods(invoice: dict):
     user_id = invoice['user_id']
 
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 ЮKassa", callback_data=f'pay:yoo:{tariff_code}'),
-        InlineKeyboardButton(text="🪙 CryptoBot", callback_data=f'pay:crypto:{tariff_code}')],
-        [InlineKeyboardButton(text='🛡 RP (Referral Points)', callback_data=f'pay:rp:{tariff_code}')],
-        [InlineKeyboardButton(text='❌ Отмена', callback_data=f'cancel:{user_id}')],
+        [InlineKeyboardButton(text="ЮKassa", callback_data=f'pay:yoo:{tariff_code}', icon_custom_emoji_id=5445353829304387411),
+        InlineKeyboardButton(text="CryptoBot", callback_data=f'pay:crypto:{tariff_code}', icon_custom_emoji_id=5199552030615558774)],
+        [InlineKeyboardButton(text='RP (Referral Points)', callback_data=f'pay:rp:{tariff_code}', icon_custom_emoji_id=5775979247814318159)],
+        [InlineKeyboardButton(text='Отмена', callback_data=f'cancel:{user_id}', icon_custom_emoji_id=5210952531676504517)],
     ])
 
 def invoice_keyboard(url: str, invoice_id: str):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💰 Оплатить", url=url)],
-        [InlineKeyboardButton(text="🔄 Проверить оплату", callback_data=f"check:crypto:{invoice_id}")],
+        [InlineKeyboardButton(text="Оплатить через CryptoBot", url=url, icon_custom_emoji_id=5199552030615558774)],
+        [InlineKeyboardButton(text="Проверить оплату", callback_data=f"check:crypto:{invoice_id}", icon_custom_emoji_id=5264727218734524899)],
         [InlineKeyboardButton(text="← Назад", callback_data="back:payment_methods"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_payment")]
+        InlineKeyboardButton(text="Отмена", callback_data="cancel_payment", icon_custom_emoji_id=5210952531676504517)]
     ])
 
 def yookassa_invoice_keyboard(url: str, payment_id: str):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Оплатить через Юkassa", url=url)],
-        [InlineKeyboardButton(text="🔄 Проверить оплату", callback_data=f"check:yookassa:{payment_id}")],
+        [InlineKeyboardButton(text="Оплатить через Юkassa", url=url, icon_custom_emoji_id=5445353829304387411)],
+        [InlineKeyboardButton(text="Проверить оплату", callback_data=f"check:yookassa:{payment_id}", icon_custom_emoji_id=5264727218734524899)],
         [InlineKeyboardButton(text="← Назад", callback_data="back:payment_methods"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_yookassa")]
+        InlineKeyboardButton(text="Отмена", callback_data="cancel_yookassa", icon_custom_emoji_id=5210952531676504517)]
     ])
 
 def rp_confirm_keyboard(tariff_code: str, rp_amount: int):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"✅ Подтвердить оплату ({rp_amount} RP)", callback_data=f"check:rp:{tariff_code}:{rp_amount}")],
+        [InlineKeyboardButton(text=f"Подтвердить оплату ({rp_amount} RP)", callback_data=f"check:rp:{tariff_code}:{rp_amount}", icon_custom_emoji_id=5206607081334906820)],
         [InlineKeyboardButton(text="← Назад", callback_data="back:payment_methods"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_rp")]
+        InlineKeyboardButton(text="Отмена", callback_data="cancel_rp", icon_custom_emoji_id=5210952531676504517)]
     ])
 
 mailing =  InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='✅ Отправить', callback_data='mailing_send')],
-    [InlineKeyboardButton(text='❌ Отмена', callback_data='mailing_cancel')]
+    [InlineKeyboardButton(text='Отправить', callback_data='mailing_send', icon_custom_emoji_id=5206607081334906820)],
+    [InlineKeyboardButton(text='Отмена', callback_data='mailing_cancel', icon_custom_emoji_id=5210952531676504517)]
 ])
 
 mailing1 =  InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='❌ Отмена', callback_data='mailing_cancel')]
+    [InlineKeyboardButton(text='Отмена', callback_data='mailing_cancel', icon_custom_emoji_id=5210952531676504517)]
 ])
 
 promo_type = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text="💰 Скидка", callback_data="promo_type_discount"),
     InlineKeyboardButton(text="🎁 RP", callback_data="promo_type_bonus")],
-    [InlineKeyboardButton(text='❌ Отмена', callback_data='cancel')]
+    [InlineKeyboardButton(text='Отмена', callback_data='cancel', icon_custom_emoji_id=5210952531676504517)]
 ])
 
 cancel =  InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='❌ Отмена', callback_data='cancel')]
+    [InlineKeyboardButton(text='Отмена', callback_data='cancel', icon_custom_emoji_id=5210952531676504517)]
 ])
 
 profile_logic = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='⚙️ Панель управления подписками', callback_data='paneluprsubs')],
-    [InlineKeyboardButton(text='🎁 Активировать промокод', callback_data='activate_promo')],
-    [InlineKeyboardButton(text='💳 Продлить подписку', callback_data='prodlenie')],
+    [InlineKeyboardButton(text='Панель управления подписками', callback_data='paneluprsubs', icon_custom_emoji_id=5341715473882955310)],
+    [InlineKeyboardButton(text='Активировать промокод', callback_data='activate_promo', icon_custom_emoji_id=5203996991054432397)],
+    [InlineKeyboardButton(text='Продлить подписку', callback_data='prodlenie', icon_custom_emoji_id=5445353829304387411)],
     [InlineKeyboardButton(text='← Назад', callback_data='back_main')]
 ])
 
 def manage_choose_tariff():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Базовый VPN 🪴", callback_data="manage:tariff:paid"),
-        InlineKeyboardButton(text="Обход Whitelists 🥷", callback_data="manage:tariff:special")],
-        [InlineKeyboardButton(text="Мульти VPN 💥", callback_data="manage:tariff:multi")],
+        [InlineKeyboardButton(text="Базовый VPN", callback_data="manage:tariff:paid", icon_custom_emoji_id=5278428495121248059),
+        InlineKeyboardButton(text="Обход Whitelists", callback_data="manage:tariff:special", icon_custom_emoji_id=5420266513011579594)],
+        [InlineKeyboardButton(text="Мульти VPN", callback_data="manage:tariff:multi", icon_custom_emoji_id=5276032951342088188)],
         [InlineKeyboardButton(text="← Назад", callback_data="profile")]
     ])
-
-
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-
 
 def manage_devices_keyboard(devices: list):
     kb = []
@@ -258,20 +257,22 @@ def manage_devices_keyboard(devices: list):
 
             kb.append([
                 InlineKeyboardButton(
-                    text=f"{i+1}) ❌ {model} ({platform})",
-                    callback_data=f"manage:dev:{i}"
+                    text=f"{model} ({platform})",
+                    callback_data=f"manage:dev:{i}",
+                    icon_custom_emoji_id=5210952531676504517
                 )
             ])
     else:
         kb.append([
             InlineKeyboardButton(
-                text="Нет устройств ❌",
-                callback_data="noop"
+                text="Нет устройств",
+                callback_data="noop",
+                icon_custom_emoji_id=5210952531676504517
             )
         ])
 
     # ───── ДОБАВЛЕННЫЕ КНОПКИ ─────
-    kb.append([InlineKeyboardButton(text="📱 Добавить устройство", callback_data="manage:add_device")])
+    kb.append([InlineKeyboardButton(text="Добавить устройство", callback_data="manage:add_device", icon_custom_emoji_id=5407025283456835913)])
     kb.append([InlineKeyboardButton(text="← Назад", callback_data="paneluprsubs")])
 
     return InlineKeyboardMarkup(inline_keyboard=kb)
@@ -280,16 +281,19 @@ def add_device_selector_keyboard(user_id: int, current: int, min_value: int, max
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
-                text="➖",
-                callback_data=f"adddev:{user_id}:set:{current - step}"
+                text="⠀",
+                callback_data=f"adddev:{user_id}:set:{current - step}",
+                icon_custom_emoji_id=5229113891081956317
             ),
             InlineKeyboardButton(
-                text=f"{current} 📱",
-                callback_data="noop"
+                text=f"{current}",
+                callback_data="noop",
+                icon_custom_emoji_id=5407025283456835913
             ),
             InlineKeyboardButton(
-                text="➕",
-                callback_data=f"adddev:{user_id}:set:{current + step}"
+                text="⠀",
+                callback_data=f"adddev:{user_id}:set:{current + step}",
+                icon_custom_emoji_id=5226945370684140473
             )
         ],
         [
@@ -309,32 +313,11 @@ def add_device_selector_keyboard(user_id: int, current: int, min_value: int, max
 def add_device_confirm_keyboard():
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="💳 ЮKassa",
-                    callback_data="adddev:pay:yoo"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🪙 CryptoBot",
-                    callback_data="adddev:pay:crypto"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="🛡 RP (Referral Points)",
-                    callback_data="adddev:pay:rp"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="← Назад",
-                    callback_data="adddev:back:selector"
-                )
-            ]
-        ]
-    )
+            [InlineKeyboardButton(text="ЮKassa", callback_data="adddev:pay:yoo", icon_custom_emoji_id=5445353829304387411),
+            InlineKeyboardButton(text="CryptoBot", callback_data="adddev:pay:crypto", icon_custom_emoji_id=5199552030615558774)],
+            [InlineKeyboardButton(text="RP (Referral Points)", callback_data="adddev:pay:rp", icon_custom_emoji_id=5775979247814318159)],
+            [InlineKeyboardButton(text="← Назад", callback_data="adddev:back:selector")]
+        ])
 
 def add_device_confirm_keyboard1(payment_url: str | None = None) -> InlineKeyboardMarkup:
     keyboard = []
@@ -343,16 +326,18 @@ def add_device_confirm_keyboard1(payment_url: str | None = None) -> InlineKeyboa
     if payment_url:
         keyboard.append([
             InlineKeyboardButton(
-                text="💳 Оплатить через Юkassa",
-                url=payment_url
+                text="Оплатить через Юkassa",
+                url=payment_url,
+                icon_custom_emoji_id=5445353829304387411
             )
         ])
 
     # Назад к селектору устройств
     keyboard.append([
         InlineKeyboardButton(
-            text="❌ Отмена",
-            callback_data="adddev:back"
+            text="Отмена",
+            callback_data="adddev:back",
+            icon_custom_emoji_id=5210952531676504517
         )
     ])
 
@@ -362,54 +347,56 @@ def crypto_pay_keyboard(pay_url: str):
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(
-                text="🪙 Оплатить через CryptoBot",
-                url=pay_url
+                text="Оплатить через CryptoBot",
+                url=pay_url,
+                icon_custom_emoji_id=5199552030615558774
             )],
             [InlineKeyboardButton(
-                text="❌ Отмена",
-                callback_data="adddev:back"
+                text="Отмена",
+                callback_data="adddev:back",
+                icon_custom_emoji_id=5210952531676504517
             )]
         ]
     )
 
 def addev_rp_confirm_keyboard(amount_rp: int):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"✅ Подтвердить оплату ({amount_rp} RP)", callback_data=f"addev:rp:{amount_rp}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="adddev:back")]
+        [InlineKeyboardButton(text=f"Подтвердить оплату ({amount_rp} RP)", callback_data=f"addev:rp:{amount_rp}", icon_custom_emoji_id=5206607081334906820)],
+        [InlineKeyboardButton(text="Отмена", callback_data="adddev:back", icon_custom_emoji_id=5210952531676504517)]
     ])
 
 subscribe_check = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="📢 Перейти в канал", url="https://t.me/grdVPNnews")],
-    [InlineKeyboardButton(text="✅ Проверить подписку", callback_data="check_subscription")]
+    [InlineKeyboardButton(text="Перейти в канал", url="https://t.me/grdVPNnews", icon_custom_emoji_id=5424818078833715060)],
+    [InlineKeyboardButton(text="Проверить подписку", callback_data="check_subscription", icon_custom_emoji_id=5206607081334906820)]
 ])
 
 # Кнопки выбора ресурса
 convert_resource_kb = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="⏳ Дни", callback_data="convert_days"),
-     InlineKeyboardButton(text="🌐 Гигабайты", callback_data="convert_gb")],
-    [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_conversion")]
+    [InlineKeyboardButton(text="Дни", callback_data="convert_days", icon_custom_emoji_id=5431897022456145283),
+     InlineKeyboardButton(text="Гигабайты", callback_data="convert_gb", icon_custom_emoji_id=5447410659077661506)],
+    [InlineKeyboardButton(text="Отмена", callback_data="cancel_conversion", icon_custom_emoji_id=5210952531676504517)]
 ])
 
 # Кнопки выбора количества
 def convert_amount_kb(max_amount: int, min_amount: int = 1):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"⬇️ Мин ({min_amount} RP)", callback_data=f"amount_min"),
-         InlineKeyboardButton(text=f"⬆️ Макс", callback_data=f"amount_max")],
-        [InlineKeyboardButton(text="↕️ Частично", callback_data="amount_partial")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_conversion")]
+        [InlineKeyboardButton(text=f"Мин ({min_amount} RP)", callback_data=f"amount_min", icon_custom_emoji_id=5436016445848831807),
+         InlineKeyboardButton(text=f"Макс", callback_data=f"amount_max", icon_custom_emoji_id=5435891415055878798)],
+        [InlineKeyboardButton(text="Частично", callback_data="amount_partial", icon_custom_emoji_id=5334673106202010226)],
+        [InlineKeyboardButton(text="Отмена", callback_data="cancel_conversion", icon_custom_emoji_id=5210952531676504517)]
     ])
 
 # Клавиатуры уведомлений об истёкших подписках
 expired_trial_kb =  InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💎 Оформить подписку", callback_data="prodlenie")]
+        [InlineKeyboardButton(text="Оформить подписку", callback_data="tarif", icon_custom_emoji_id=5427168083074628963)]
 ])
 
 expired_paid_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="♻ Продлить подписку", callback_data="prodlenie")]
+        [InlineKeyboardButton(text="Продлить подписку", callback_data="prodlenie", icon_custom_emoji_id=5974235702701853774)]
 ])
 
 expired_special_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛡 Продлить подписку", callback_data="prodlenie")]
+        [InlineKeyboardButton(text="Продлить подписку", callback_data="prodlenie", icon_custom_emoji_id=5974235702701853774)]
 ])
 
 
@@ -417,16 +404,19 @@ def devices_selector_keyboard(user_id: int, current: int, min_value: int, max_va
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
-                text="➖",
-                callback_data=f"devices:{user_id}:set:{current-step}"
+                text="⠀",
+                callback_data=f"devices:{user_id}:set:{current-step}",
+                icon_custom_emoji_id=5229113891081956317
             ),
             InlineKeyboardButton(
-                text=f"{current} 📱",
-                callback_data="devices:none"  # просто заглушка, не кликается
+                text=f"{current}",
+                callback_data="devices:none",
+                icon_custom_emoji_id=5407025283456835913
             ),
             InlineKeyboardButton(
-                text="➕",
-                callback_data=f"devices:{user_id}:set:{current+step}"
+                text="⠀",
+                callback_data=f"devices:{user_id}:set:{current+step}",
+                icon_custom_emoji_id=5226945370684140473
             )
         ],
         [
@@ -445,8 +435,11 @@ def devices_selector_keyboard(user_id: int, current: int, min_value: int, max_va
 
 def confirm_zakaz_keyboard(user_id: int):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm:{user_id}")],
+        [InlineKeyboardButton(text="Подтвердить", callback_data=f"confirm:{user_id}", icon_custom_emoji_id=5206607081334906820)],
         [InlineKeyboardButton(text="← Назад", callback_data="back:devices"),
-        InlineKeyboardButton(text="❌ Отмена", callback_data=f"cancel:{user_id}")]
+        InlineKeyboardButton(text="Отмена", callback_data=f"cancel:{user_id}", icon_custom_emoji_id=5210952531676504517)]
     ])
 
+referral_notify = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text='💫 Пригласить', callback_data='referral')]
+])

@@ -26,6 +26,7 @@ from app.tasks import pay_notify as pn
 return_url = 'https://t.me/GrdVPNbot'
 router = Router()
 bot2 = Bot(token=TOKEN)
+
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # Отдел необходимых для работы обработчиков функций и временных хранилищ
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -33,6 +34,115 @@ bot2 = Bot(token=TOKEN)
 ACTIVE_INVOICES = {}
 TEMP_MAILING = {}
 SESSION = {}
+
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# Авточекеры статуса платежа 
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
+async def auto_check_add_device_payment_yookassa(
+    *,
+    tg_id: int,
+    message: Message,
+    timeout: int = 10 * 60,
+    interval: int = 12
+):
+    start_ts = time.time()
+
+    while True:
+        await asyncio.sleep(interval)
+
+        session = SESSION.get(tg_id)
+        if not session or "add_device" not in session:
+            return  # пользователь ушёл
+
+        payment = session["add_device"].get("payment")
+        if not payment or not payment.get("payment_id"):
+            return
+
+        payment_id = payment["payment_id"]
+
+        # ─── проверяем платёж ───────────────────────
+        if yoo.check_payment(payment_id):
+            # ─── SUCCESS ───────────────────────────
+            subscription = session["subscription"]
+
+            await rm.update_subscription_hwid_limit(
+                sub_uuid=subscription["uuid"],
+                hwid_limit=payment["new_limit"],
+            )
+
+            # обновляем локально
+            subscription["hwidDeviceLimit"] = payment["new_limit"]
+
+            # чистим add_device
+            session.pop("add_device", None)
+            # ─── возвращаем пользователя в панель ───
+            await render_manage_subscription_panel(
+                tg_id=tg_id,
+                message=message,
+                subscription=subscription
+            )
+            return
+
+        # ─── таймаут ───────────────────────────────
+        if time.time() - start_ts > timeout:
+            await message.edit_caption(
+                caption=(
+                    "<tg-emoji emoji-id=\"5451732530048802485\">⏳</tg-emoji> Время ожидания оплаты истекло.\n\n"
+                    "Если вы оплатили — напишите в поддержку."
+                ),
+                parse_mode="HTML"
+            )
+            return
+async def auto_check_add_device_payment_crypto(
+    *,
+    tg_id: int,
+    message: Message,
+    timeout: int = 10 * 60,
+    interval: int = 12
+):
+    start_ts = time.time()
+
+    while True:
+        await asyncio.sleep(interval)
+
+        session = SESSION.get(tg_id)
+        if not session or "add_device" not in session:
+            return
+
+        payment = session["add_device"]["payment"]
+        invoice_id = payment.get("crypto_invoice_id")
+
+        if not invoice_id:
+            return
+
+        if cb.check_crypto_invoice(invoice_id):
+            subscription = session["subscription"]
+
+            # 🔹 бизнес-логика
+            await rm.update_subscription_hwid_limit(
+                sub_uuid=subscription["uuid"],
+                hwid_limit=payment["new_limit"]
+            )
+
+            subscription["hwidDeviceLimit"] = payment["new_limit"]
+            session.pop("add_device", None)
+            # 🔹 возврат в панель
+            await render_manage_subscription_panel(
+                tg_id=tg_id,
+                message=message,
+                subscription=subscription
+            )
+            return
+
+        if time.time() - start_ts > timeout:
+            await message.edit_caption(
+                caption=(
+                    "<tg-emoji emoji-id=\"5451732530048802485\">⏳</tg-emoji> Время ожидания оплаты истекло.\n\n"
+                    "Если вы оплатили — напишите в поддержку."
+                ),
+                parse_mode="HTML"
+            )
+            return
 
 def calc_max_rp_for_conversion(
     *,
@@ -60,12 +170,12 @@ async def apply_rp_resource_and_render(
 ):
     amount = int(amount)
 
-    caption_error = "❌ Не удалось обновить подписку"
-    caption_success = ("<b>✅ Выбранный ресурс был успешно добавлен</b>\n"
-                    "⚙️ Вы были возвращены в меню <b>Модернизации подписки</b>\n\n"
-                    "<blockquote>В былые времена рыцари укрепляли свои <b>доспехи</b> 🦾, чтобы уверенно идти в новые походы.\n\n"
-                    "Сегодня же ты можешь модернизировать свой <b>цифровой щит</b> 🛡\n\n Увеличивай кол-во <b>дней</b> ⏳ или доступных <b>ГБ</b> 🌐 и пользуйся VPN-подпиской дольше!</blockquote>\n\n"
-                    "<i> Выберите тип своей подписки ниже</i> 👇" 
+    caption_error = "<tg-emoji emoji-id=\"5210952531676504517\">❌</tg-emoji> Не удалось обновить подписку"
+    caption_success = ("<b><tg-emoji emoji-id=\"5206607081334906820\">✔️</tg-emoji> Выбранный ресурс был успешно добавлен</b>\n"
+                    "<tg-emoji emoji-id=\"5341715473882955310\">⚙️</tg-emoji> Вы были возвращены в меню <b>Модернизации подписки</b>\n\n"
+                    "<blockquote>В былые времена рыцари укрепляли свои <b>доспехи</b> <tg-emoji emoji-id=\"5211076432893091192\">🤩</tg-emoji>, чтобы уверенно идти в новые походы.\n\n"
+                    "Сегодня же ты можешь модернизировать свой <b>цифровой щит</b> <tg-emoji emoji-id=\"5017108172138087141\">🛡</tg-emoji>\n\n Увеличивай кол-во <b>дней</b> <tg-emoji emoji-id=\"5431897022456145283\">📆</tg-emoji> или доступных <b>ГБ</b> <tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji> и пользуйся VPN-подпиской дольше!</blockquote>\n\n"
+                    "<i> Выберите тип своей подписки ниже</i> <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji>" 
                 )
 
     result = await rm.apply_rp_resource(
@@ -93,9 +203,6 @@ async def apply_rp_resource_and_render(
         ),
         reply_markup=kb.updatesub
     )
-
-
-
 
 def fmt_date(d: str | None):
     if not d:
@@ -151,7 +258,7 @@ def detect_group(tariff_code: str) -> str:
     return "BASE"
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Отдел необходимых для работы обработчиков функций и временных хранилищ
+# Конец отдела необходимых для работы обработчиков функций и временных хранилищ
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 # Начало работы бота
@@ -179,9 +286,9 @@ async def start(message: Message):
     await message.answer_photo(
         photo=photo,
         caption=(
-            "👋 <b>Добро пожаловать в The Guardian VPN🔐 - ваш главный интернет-защитник!</b>\n\n"
+            "<tg-emoji emoji-id=\"5472055112702629499\">👋</tg-emoji> <b>Добро пожаловать в The Guardian VPN <tg-emoji emoji-id=\"5296369303661067030\">🔒</tg-emoji> - ваш главный интернет-защитник!</b>\n\n"
             "<b>Это место, где твоя безопасность и свобода в сети становятся реальностью.</b>\n\n"
-            "<i>Нажми кнопку ниже, чтобы начать</i>👇"
+            "<i>Нажми кнопку ниже, чтобы начать</i><tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji>"
         ),
         parse_mode="HTML",
         reply_markup=kb.continue_btn_new if not user_exists else kb.continue_btn_existing
@@ -198,9 +305,9 @@ async def continue_new(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "📢 <b>Прежде чем пользоваться ботом, пожалуйста подпишитесь на канал.</b>\n\n"
-                "🛡️ Там публикуются новости, обновления, промокоды и важные уведомления\n\n"
-                "<i>После подписки нажми кнопку '✅ Проверить подписку' </i>"
+                "<tg-emoji emoji-id=\"5424818078833715060\">📣</tg-emoji> <b>Прежде чем пользоваться ботом, пожалуйста подпишитесь на канал.</b>\n\n"
+                "<tg-emoji emoji-id=\"5017108172138087141\">🛡</tg-emoji> Там публикуются новости, обновления, промокоды и важные уведомления\n\n"
+                "<i>После подписки нажми кнопку '<tg-emoji emoji-id=\"5206607081334906820\">✔️</tg-emoji> Проверить подписку' </i>"
             ),
             parse_mode="HTML"
         ),
@@ -232,19 +339,19 @@ async def show_info(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-            "🛡️ <b>Отлично!</b>\n"
-            "Добро пожаловать в <b>The Guardian VPN🔐</b> — твой личный защитник в цифровом мире.\n\n"
-            "🔒 <b>Безопасность превыше всего</b>\n"
+            "<tg-emoji emoji-id=\"5017108172138087141\">🛡</tg-emoji> <b>Отлично!</b>\n"
+            "Добро пожаловать в <b>The Guardian VPN</b> <tg-emoji emoji-id=\"5296369303661067030\">🔒</tg-emoji> — твой личный защитник в цифровом мире.\n\n"
+            "<tg-emoji emoji-id=\"5296369303661067030\">🔒</tg-emoji> <b>Безопасность превыше всего</b>\n"
             "Шифруем весь трафик, защищаем данные и не храним логи. Твоя приватность — под нашей защитой.\n\n"
-            "⚙️ <b>Сделано вручную</b>\n"
+            "<tg-emoji emoji-id=\"5341715473882955310\">⚙️</tg-emoji> <b>Сделано вручную</b>\n"
             "Проект создан одним разработчиком с акцентом на стабильность, простоту и честность.\n\n"
-            "🌍 <b>Надёжные узлы</b>\n"
-            "Подключайся через проверенные сервера:\n🇺🇸 | 🇩🇪 | 🇳🇱 | 🇫🇮 | 🇷🇺 | 🇫🇷 | 🇵🇱 | 🇸🇪 | 🇪🇪\n\n"
-            "🚀 <b>Быстро и просто</b>\n"
+            "<tg-emoji emoji-id=\"5399898266265475100\">🌍</tg-emoji> <b>Надёжные узлы</b>\n"
+            "Подключайся через проверенные сервера:\n<tg-emoji emoji-id=\"5202021044105257611\">🇺🇸</tg-emoji> | <tg-emoji emoji-id=\"5409360418520967565\">🇩🇪</tg-emoji> | <tg-emoji emoji-id=\"5411124743841524806\">🇳🇱</tg-emoji> | <tg-emoji emoji-id=\"5382151560182642075\">🇫🇮</tg-emoji> | <tg-emoji emoji-id=\"5449408995691341691\">🇷🇺</tg-emoji> | <tg-emoji emoji-id=\"5202132623060640759\">🇫🇷</tg-emoji> | <tg-emoji emoji-id=\"5291847690940852675\">🇵🇱</tg-emoji> | <tg-emoji emoji-id=\"5384542551296455687\">🇸🇪</tg-emoji> | <tg-emoji emoji-id=\"5411174505332615466\">🇪🇪</tg-emoji>\n\n"
+            "<tg-emoji emoji-id=\"5188481279963715781\">🚀</tg-emoji> <b>Быстро и просто</b>\n"
             "Подключение в один клик. Никаких сложных настроек — просто защита.\n\n"
-            "❤️ <b>Миссия</b>\n"
+            "<tg-emoji emoji-id=\"5208912254707213785\">🤩</tg-emoji> <b>Миссия</b>\n"
             "Дарить каждому свободу и спокойствие в сети, без компромиссов по безопасности.\n\n"
-            "📘 Нажимая кнопку <b>✅ Соглашаюсь</b>, вы принимаете "
+            "<tg-emoji emoji-id=\"5226512880362332956\">📖</tg-emoji> Нажимая кнопку <b><tg-emoji emoji-id=\"5206607081334906820\">✔️</tg-emoji> Соглашаюсь</b>, вы принимаете "
             "<a href='https://telegra.ph/Pravila-ispolzovaniya-10-18'>условия использования</a> "
             "и <a href='https://telegra.ph/Politika-konfidencialnosti-10-18-58'>политику конфиденциальности</a>."
             ),
@@ -266,10 +373,10 @@ async def help(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "✅ <b>Отлично, добро пожаловать в главное меню!</b>\n\n"
+                "<tg-emoji emoji-id=\"5206607081334906820\">✔️</tg-emoji> <b>Отлично, добро пожаловать в главное меню!</b>\n\n"
                 "<blockquote><i>Ты находишься в главном меню, откуда можно легко перейти к нужным возможностям.\n"
                 "Если что-то понадобится — просто выбери подходящий пункт.</i></blockquote>\n\n"
-                "<i>Начнём?</i> 👇"
+                "<i>Начнём?</i> <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji>"
             ),
             parse_mode="HTML"
         ),
@@ -288,10 +395,10 @@ async def existing_user_menu(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "🔓 <b>Добро пожаловать обратно!</b>\n\n"
+                "<tg-emoji emoji-id=5296369303661067030>🔒</tg-emoji> <b>Добро пожаловать обратно!</b>\n\n"
                 "<blockquote><i>Рад, что ты снова с нами!\n"
                 "Все функции бота готовы к использованию.</i></blockquote>\n\n"
-                "<i>Выбери интересующий тебя вариант</i> 👇"
+                "<i>Выбери интересующий тебя вариант</i> <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji>"
             ),
             parse_mode="HTML"
         ),
@@ -310,11 +417,11 @@ async def help(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "<b>Мы — твой цифровой щит</b>🛡️\n\n"
-                "<blockquote><b>The Guardian VPN</b>🔐 — это безопасный доступ в интернет без ограничений.\n\n"
+                "<b>Мы — твой цифровой щит</b> <tg-emoji emoji-id=\"5017108172138087141\">🛡</tg-emoji>\n\n"
+                "<blockquote><b>The Guardian VPN</b> <tg-emoji emoji-id=5296369303661067030>🔒</tg-emoji> — это безопасный доступ в интернет без ограничений.\n\n"
                 "Мы шифруем твой трафик, скрываем IP и защищаем личные данные.\n"
                 "Быстро. Надёжно. Без логов.</blockquote>\n\n"
-                "<i>Подключайся и будь невидимым</i> 🥷"
+                "<i>Подключайся и будь невидимым</i> <tg-emoji emoji-id=\"5420266513011579594\">🪆</tg-emoji>"
             ),
             parse_mode="HTML"
         ),
@@ -348,22 +455,22 @@ async def referral(callback: CallbackQuery):
     photo = FSInputFile(photo_path)
 
     caption = (
-        "<blockquote>🎁 <b>Бонусная программа</b></blockquote>\n\n"
+        "<blockquote><tg-emoji emoji-id=\"5203996991054432397\">🎁</tg-emoji> <b>Бонусная программа</b></blockquote>\n\n"
         "Приглашая друзей, вы получаете <b>2 RP</b> за каждого приглашённого!\n\n"
-        "<b>❗️ Чтобы получить бонус, приглашённый должен зарегистрироваться.</b>\n\n"
-        "<blockquote>💠<b> RP</b> - <i>это токены, являющиеся полноценной внутренней валютой этого сервиса.\n<b>Покупайте</b> или <b>продлевайте</b> свою подписку просто приглашая знакомых!\n\n"
-        "Здесь вы также можете конвертировать ваши <b>RP</b>\nв 📅 дни / 📦 гигабайты, которые можно будет добавить к действующей платной подписке!</i></blockquote>\n\n"
+        "<b><tg-emoji emoji-id=\"5274099962655816924\">❗️</tg-emoji> Чтобы получить бонус, приглашённый должен зарегистрироваться.</b>\n\n"
+        "<blockquote><tg-emoji emoji-id=\"5775979247814318159\">🛡️</tg-emoji><b> RP</b> - <i>это токены, являющиеся полноценной внутренней валютой этого сервиса.\n<b>Покупайте</b> или <b>продлевайте</b> свою подписку просто приглашая знакомых!\n\n"
+        "Здесь вы также можете конвертировать ваши <b>RP</b>\nв <tg-emoji emoji-id=\"5431897022456145283\">📆</tg-emoji> дни / <tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji> гигабайты, которые можно будет добавить к действующей платной подписке!</i></blockquote>\n\n"
         "<b>Курс: 1 RP = 1 день = 2 ГБ = 8₽</b>\n\n"
-        f"<blockquote>📊 <b>Ваша статистика:</b>\n"
-        f"✍🏿 <b>Всего приглашено:    {invited_count}</b>\n"
-        f"💠 <b>Баланс RP:    {bonus_days_balance}</b>\n\n"
-        f"📅 <b>Баланс дней:    {days_balance}</b>\n"
-        f"📦 <b>Баланс гигабайтов:    {gb_balance}</b>\n\n"
-        f"📅 <b>Доступный лимит копилки дней:    {days_limit}</b>\n"
-        f"📦 <b>Доступный лимит копилки гигабайтов:    {gb_limit}</b>\n\n"
-        f"🔗 <b>Ваша реферальная ссылка:</b>\n"
+        f"<blockquote><tg-emoji emoji-id=\"5231200819986047254\">📊</tg-emoji> <b>Ваша статистика:</b>\n"
+        f"<tg-emoji emoji-id=\"5773937265742977615\">✍</tg-emoji> <b>Всего приглашено:    {invited_count}</b>\n"
+        f"<tg-emoji emoji-id=\"5775979247814318159\">🛡️</tg-emoji> <b>Баланс RP:    {bonus_days_balance}</b>\n\n"
+        f"<tg-emoji emoji-id=\"5431897022456145283\">📆</tg-emoji> <b>Баланс дней:    {days_balance}</b>\n"
+        f"<tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji> <b>Баланс гигабайтов:    {gb_balance}</b>\n\n"
+        f"<tg-emoji emoji-id=\"5431897022456145283\">📆</tg-emoji> <b>Доступный лимит копилки дней:    {days_limit}</b>\n"
+        f"<tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji> <b>Доступный лимит копилки гигабайтов:    {gb_limit}</b>\n\n"
+        f"<tg-emoji emoji-id=\"5271604874419647061\">🔗</tg-emoji> <b>Ваша реферальная ссылка:</b>\n"
         f"<code>{ref_link}</code></blockquote>\n\n"
-        "<i>Отправляйте ссылку друзьям и получайте RP!</i> 🫂"
+        "<i>Отправляйте ссылку друзьям и получайте RP!</i> <tg-emoji emoji-id=\"5776262818735069755\">🫂</tg-emoji>"
     )
 
     await callback.message.edit_media(
@@ -387,10 +494,10 @@ async def update_sub(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
         caption=(
-            "⚙️ <b>Модернизация подписки</b>\n\n"
-            "<blockquote>В былые времена рыцари укрепляли свои <b>доспехи</b> 🦾, чтобы уверенно идти в новые походы.\n\n"
-            "Сегодня же ты можешь модернизировать свой <b>цифровой щит</b> 🛡\n\n Увеличивай кол-во <b>дней</b> ⏳ или доступных <b>ГБ</b> 🌐 и пользуйся VPN-подпиской дольше!</blockquote>\n\n"
-            "<i> Выберите тип своей подписки ниже</i> 👇"
+            "<tg-emoji emoji-id=\"5341715473882955310\">⚙️</tg-emoji> <b>Модернизация подписки</b>\n\n"
+            "<blockquote>В былые времена рыцари укрепляли свои <b>доспехи</b> <tg-emoji emoji-id=\"5211076432893091192\">🤩</tg-emoji>, чтобы уверенно идти в новые походы.\n\n"
+            "Сегодня же ты можешь модернизировать свой <b>цифровой щит</b> <tg-emoji emoji-id=\"5017108172138087141\">🛡</tg-emoji>\n\n Увеличивай кол-во <b>дней</b> <tg-emoji emoji-id=\"5431897022456145283\">📆</tg-emoji> или доступных <b>ГБ</b> <tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji> и пользуйся VPN-подпиской дольше!</blockquote>\n\n"
+            "<i> Выберите тип своей подписки ниже</i> <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji>"
             ),
             parse_mode="HTML"
         ),
@@ -400,7 +507,7 @@ async def update_sub(callback: CallbackQuery):
 # Кнопка подключения к VPN
 @router.callback_query(F.data == 'connectvpn')
 async def connectvpn(callback: CallbackQuery):
-    await callback.answer('Подключение к VPN 🚀')
+    await callback.answer('VPN 🚀')
 
     photo_path = "./assets/vpn_knight.jpg"
     photo = FSInputFile(photo_path)
@@ -409,9 +516,9 @@ async def connectvpn(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
         caption=(
-            f"🏰 <b> Добро пожаловать в Чертоги Стабильного Соединения</b>\n\n"
+            f"<tg-emoji emoji-id=\"5429403746696189687\">🏰</tg-emoji> <b> Добро пожаловать в Чертоги Стабильного Соединения</b>\n\n"
             f"✠ Здесь рыцари шёпотом обмениваются тайными путями, недоступные чужим глазам...\n\n"
-            f"<i>Выберите нужное действие ниже</i> 👇"
+            f"<i>Выберите нужное действие ниже</i> <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji>"
         ),
         parse_mode="HTML"
         ),
@@ -431,8 +538,8 @@ async def help(callback: CallbackQuery):
             media=photo,
             caption=(
                 "✠ <b>Ты не один в этих землях...</b>\n\n"
-                "❓ Ответы на часто задаваемые вопросы можно найти открыв статью <b>F.A.Q.</b>\n\n"
-                "🛟 <i>Если возникла проблема или вопрос, то напиши в поддержку, поможем разобраться!</i>"
+                "<tg-emoji emoji-id=\"5436113877181941026\">❓</tg-emoji> Ответы на часто задаваемые вопросы можно найти открыв статью <b>F.A.Q.</b>\n\n"
+                "<tg-emoji emoji-id=\"5773937265742977615\">✍</tg-emoji> <i>Если возникла проблема или вопрос, то напиши в поддержку, поможем разобраться!</i>"
             ),
             parse_mode="HTML"
         ),
@@ -444,8 +551,6 @@ async def help(callback: CallbackQuery):
 async def profile(callback: CallbackQuery):
     await callback.answer('Ваш профиль👤')
 
-    from datetime import datetime
-
     tg_id = callback.from_user.id
     full_name = callback.from_user.full_name
     username = callback.from_user.username or "—"
@@ -455,18 +560,18 @@ async def profile(callback: CallbackQuery):
     bonus_days_balance = await hp.get_rp_balance(tg_id)
 
     caption = (
-        f"🛡️ <b>Профиль пользователя</b>\n\n"
-        f"<blockquote>👤 <b>Имя:</b> {full_name}\n"
+        f"<tg-emoji emoji-id=\"5017108172138087141\">🛡</tg-emoji> <b>Профиль пользователя</b>\n\n"
+        f"<blockquote><tg-emoji emoji-id=\"5373012449597335010\">👤</tg-emoji> <b>Имя:</b> {full_name}\n"
         f"🆔 <b>Username:</b> @{username}\n"
-        f"💠 <b>Баланс RP:   {bonus_days_balance}</b></blockquote>\n\n"
+        f"<tg-emoji emoji-id=\"5775979247814318159\">🛡️</tg-emoji> <b>Баланс RP:   {bonus_days_balance}</b></blockquote>\n\n"
     )
 
     # Если подписок нет
     if not raw_users:
         caption += (
             "<blockquote>"
-            "🚫 <b>У вас нет активных подписок.</b>\n"
-            "Получите пробный ключ или оформите подписку💎"
+            "<tg-emoji emoji-id=\"5240241223632954241\">🚫</tg-emoji> <b>У вас нет активных подписок.</b>\n"
+            "Получите пробный ключ или оформите подписку <tg-emoji emoji-id=\"5427168083074628963\">💎</tg-emoji>"
             "</blockquote>"
         )
     else:
@@ -491,9 +596,9 @@ async def profile(callback: CallbackQuery):
 
             status_raw = sub.get("status", "").upper()
             if status_raw == "ACTIVE":
-                status = "🟢 ACTIVE"
+                status = "<tg-emoji emoji-id=\"5416081784641168838\">🟢</tg-emoji> ACTIVE"
             elif status_raw == "EXPIRED":
-                status = "🔴 EXPIRED"
+                status = "<tg-emoji emoji-id=\"5411225014148014586\">🔴</tg-emoji> EXPIRED"
             else:
                 status = "⚪️ —"
 
@@ -521,19 +626,19 @@ async def profile(callback: CallbackQuery):
 
             caption += (
                 f"<blockquote>"
-                f"📦 <b>Подписка #{i}</b>\n"
+                f"<tg-emoji emoji-id=\"5390854796011906616\">#️⃣</tg-emoji> <b>Подписка #{i}</b>\n"
                 f"───────────────────────────────\n"
-                f"💎 <b>Тариф:</b> {plan}\n"
-                f"📌 <b>Статус: {status}</b>\n"
+                f"<tg-emoji emoji-id=\"5427168083074628963\">💎</tg-emoji> <b>Тариф:</b> {plan}\n"
+                f"<tg-emoji emoji-id=\"5397782960512444700\">📌</tg-emoji> <b>Статус: {status}</b>\n"
                 f"───────────────────────────────\n"
-                f"📱 <b>Устройства:</b> {devices_str}\n\n"
+                f"<tg-emoji emoji-id=\"5407025283456835913\">📱</tg-emoji> <b>Устройства:</b> {devices_str}\n\n"
                 f"{device_lines}"
                 f"───────────────────────────────\n"
-                f"📦 <b>Трафик:</b> {traffic_str}\n"
-                f"🕒 <b>Начало:</b> {start}\n"
-                f"⏳ <b>Окончание:</b> {end}\n"
+                f"<tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji> <b>Трафик:</b> {traffic_str}\n"
+                f"<tg-emoji emoji-id=\"5382194935057372936\">⏱</tg-emoji> <b>Начало:</b> {start}\n"
+                f"<tg-emoji emoji-id=\"5451732530048802485\">⏳</tg-emoji> <b>Окончание:</b> {end}\n"
                 f"───────────────────────────────\n"
-                f"🔗 <b>Ссылка-ключ:</b> {sub_url}\n"
+                f"<tg-emoji emoji-id=\"5271604874419647061\">🔗</tg-emoji> <b>Ссылка-ключ:</b> {sub_url}\n"
                 f"───────────────────────────────\n"
                 f"</blockquote>\n"
             )
@@ -560,11 +665,11 @@ async def help(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "⚙️ <b>Ты попал в панель управления подписками.</b>\n\n"
-                "❗️Обратите внимание, что управление пробной подпиской недоступно.\n\n"
+                "<tg-emoji emoji-id=\"5341715473882955310\">⚙️</tg-emoji> <b>Ты попал в панель управления подписками.</b>\n\n"
+                "<tg-emoji emoji-id=\"5274099962655816924\">❗️</tg-emoji> Обратите внимание, что управление пробной подпиской недоступно.\n\n"
                 "<blockquote> <b>Здесь ты можешь:</b>\n\n"
-                " <i>|+| 🛠️ Удалять/увеличивать устройства в подписках</i></blockquote>\n\n"
-                "<i>Для старта выберите свой тип подписки</i> 👇"
+                " <i>|+| <tg-emoji emoji-id=\"5895592588064328942\">⚙️</tg-emoji> Удалять/увеличивать устройства в подписках</i></blockquote>\n\n"
+                "<i>Для старта выберите свой тип подписки</i> <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji>"
             ),
             parse_mode="HTML"
         ),
@@ -639,14 +744,14 @@ async def panel_select_tariff(callback: CallbackQuery):
         device_lines = "• Нет подключённых устройств\n"
 
     caption = (
-        f"<b>🛠️ Управление подпиской</b>\n\n"
-        f"<blockquote>💎 <b>Тариф:</b> {plan}\n"
+        f"<b><tg-emoji emoji-id=\"5895592588064328942\">⚙️</tg-emoji> Управление подпиской</b>\n\n"
+        f"<blockquote><tg-emoji emoji-id=\"5427168083074628963\">💎</tg-emoji> <b>Тариф:</b> {plan}\n"
         f"───────────────────────────────\n"
-        f"📱 <b>Устройства:</b> <b>{devices_str}</b>\n\n"
+        f"<tg-emoji emoji-id=\"5407025283456835913\">📱</tg-emoji> <b>Устройства:</b> <b>{devices_str}</b>\n\n"
         f"{device_lines}"
         f"───────────────────────────────\n"
-        f"🕒 <b>Начало:</b> {start_fmt}\n"
-        f"⏳ <b>Окончание:</b> {end_fmt}\n"
+        f"<tg-emoji emoji-id=\"5382194935057372936\">⏱</tg-emoji> <b>Начало:</b> {start_fmt}\n"
+        f"<tg-emoji emoji-id=\"5451732530048802485\">⏳</tg-emoji> <b>Окончание:</b> {end_fmt}\n"
         f"───────────────────────────────</blockquote>\n"
     )
 
@@ -725,14 +830,14 @@ async def remove_device(callback: CallbackQuery):
         device_lines = "• Нет подключённых устройств\n"
 
     new_caption = (
-        f"<b>🛠️ Управление подпиской</b>\n\n"
-        f"<blockquote>💎 <b>Тариф:</b> {plan}\n"
+        f"<b><tg-emoji emoji-id=\"5895592588064328942\">⚙️</tg-emoji> Управление подпиской</b>\n\n"
+        f"<blockquote><tg-emoji emoji-id=\"5427168083074628963\">💎</tg-emoji> <b>Тариф:</b> {plan}\n"
         f"───────────────────────────────\n"
-        f"📱 <b>Устройства:</b> <b>{devices_str}</b>\n\n"
+        f"<tg-emoji emoji-id=\"5407025283456835913\">📱</tg-emoji> <b>Устройства:</b> <b>{devices_str}</b>\n\n"
         f"{device_lines}"
         f"───────────────────────────────\n"
-        f"🕒 <b>Начало:</b> {start_fmt}\n"
-        f"⏳ <b>Окончание:</b> {end_fmt}\n"
+        f"<tg-emoji emoji-id=\"5382194935057372936\">⏱</tg-emoji> <b>Начало:</b> {start_fmt}\n"
+        f"<tg-emoji emoji-id=\"5451732530048802485\">⏳</tg-emoji> <b>Окончание:</b> {end_fmt}\n"
         f"───────────────────────────────</blockquote>\n"
     )
 
@@ -771,10 +876,10 @@ async def add_device_start(callback: CallbackQuery):
     }
 
     caption = (
-        "<b>📱 Добавить устройства</b>\n\n"
+        "<b><tg-emoji emoji-id=\"5407025283456835913\">📱</tg-emoji> Добавить устройства</b>\n\n"
         "Выберите новое количество устройств.\n"
-        "<blockquote>ВАЖНО:\n"
-        "• При увеличении количества - доплата пропорционально оставшемуся времени\n"
+        "<blockquote>ВАЖНО:\n\n"
+        "• При увеличении количества - доплата пропорционально оставшемуся времени\n\n"
         "• Уменьшать текущий лимит нельзя, возврат не производится.</blockquote>"
     )
 
@@ -842,14 +947,14 @@ async def add_device_back(callback: CallbackQuery):
         device_lines = "• Нет подключённых устройств\n"
 
     caption = (
-        f"<b>🛠️ Управление подпиской</b>\n\n"
-        f"<blockquote>💎 <b>Тариф:</b> {clean_plan(sub.get('description'))}\n"
+        f"<b><tg-emoji emoji-id=\"5895592588064328942\">⚙️</tg-emoji> Управление подпиской</b>\n\n"
+        f"<blockquote><tg-emoji emoji-id=\"5427168083074628963\">💎</tg-emoji> <b>Тариф:</b> {clean_plan(sub.get('description'))}\n"
         f"───────────────────────────────\n"
-        f"📱 <b>Устройства:</b> <b>{devices_str}</b>\n\n"
+        f"<tg-emoji emoji-id=\"5407025283456835913\">📱</tg-emoji> <b>Устройства:</b> <b>{devices_str}</b>\n\n"
         f"{device_lines}"
         f"───────────────────────────────\n"
-        f"🕒 <b>Начало:</b> {fmt_date(sub.get('createdAt'))}\n"
-        f"⏳ <b>Окончание:</b> {fmt_date(sub.get('expireAt'))}\n"
+        f"<tg-emoji emoji-id=\"5382194935057372936\">⏱</tg-emoji> <b>Начало:</b> {fmt_date(sub.get('createdAt'))}\n"
+        f"<tg-emoji emoji-id=\"5451732530048802485\">⏳</tg-emoji> <b>Окончание:</b> {fmt_date(sub.get('expireAt'))}\n"
         f"───────────────────────────────</blockquote>\n"
     )
 
@@ -969,12 +1074,12 @@ async def add_device_continue(callback: CallbackQuery):
     }
 
     caption = (
-        "<b>☑️ Подтверждение заказа</b>\n\n"
-        f"<blockquote>📱 Было устройств: <b>{old_limit}</b>\n"
-        f"📱 Станет устройств: <b>{new_limit}</b>\n\n"
-        f"⏳ Осталось дней: <b>{math.ceil(remaining_days)}</b></blockquote>\n\n"
-        f"💰 <b>К оплате:</b> <b>{total_price} ₽</b>\n\n"
-        "<i>Выберите способ оплаты</i> 👇"
+        "<blockquote><b><tg-emoji emoji-id=\"5454096630372379732\">☑️</tg-emoji> Подтверждение заказа</b></blockquote>\n\n"
+        f"<blockquote><tg-emoji emoji-id=\"5407025283456835913\">📱</tg-emoji> Было устройств: <b>{old_limit}</b>\n"
+        f"<tg-emoji emoji-id=\"5407025283456835913\">📱</tg-emoji> Станет устройств: <b>{new_limit}</b>\n\n"
+        f"<tg-emoji emoji-id=\"5451732530048802485\">⏳</tg-emoji> Осталось дней: <b>{math.ceil(remaining_days)}</b></blockquote>\n\n"
+        f"<tg-emoji emoji-id=\"5431499171045581032\">🛒</tg-emoji> <b>К оплате:</b> <b>{total_price} ₽</b>\n\n"
+        "<i>Выберите способ оплаты</i> <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji>"
     )
 
     await callback.message.edit_media(
@@ -1019,10 +1124,10 @@ async def add_device_pay_yookassa(callback: CallbackQuery):
     payment["status"] = "pending"
 
     caption=(
-        "<b>💳 Оплата через Юkassa</b>\n\n"
-        f"🛒 Общая сумма заказа: <b>{amount}₽</b>\n\n"
-        "❌ Отмена заказа вернёт вас в панель управления подпиской.\n\n"
-        "<i>После успешной оплаты подписка обновится автоматически.</i>"
+        "<b><tg-emoji emoji-id=\"5445353829304387411\">💳</tg-emoji> Оплата через Юkassa</b>\n\n"
+        f"<blockquote><tg-emoji emoji-id=\"5431499171045581032\">🛒</tg-emoji> Общая сумма заказа: <b>{amount} <tg-emoji emoji-id=\"5231449120635370684\">💸</tg-emoji></b>\n"
+        "<tg-emoji emoji-id=\"5210952531676504517\">❌</tg-emoji> Отмена заказа вернёт вас в панель управления подпиской.</blockquote>\n\n"
+        "<i>После успешной оплаты подписка обновится автоматически <tg-emoji emoji-id=\"5264727218734524899\">🔄</tg-emoji></i>"
     )
 
     photo_path = "./assets/yookassa_knight.jpg"
@@ -1076,10 +1181,10 @@ async def add_device_pay_crypto(callback: CallbackQuery):
 
     await callback.message.edit_caption(
         caption=(
-            "<b>🪙 Оплата через CryptoBot</b>\n\n"
-            f"🛒 Общая сумма заказа: <b>{amount_usd} USDT</b>\n\n"
-            "❌ Отмена заказа вернёт вас в панель управления подпиской.\n\n"
-            "<i>После успешной оплаты подписка обновится автоматически.</i>"
+            "<b><tg-emoji emoji-id=\"5199552030615558774\">🪙</tg-emoji> Оплата через CryptoBot</b>\n\n"
+            f"<blockquote><tg-emoji emoji-id=\"5431499171045581032\">🛒</tg-emoji> Общая сумма заказа: <b>{amount_usd} <tg-emoji emoji-id=\"5201692367437974073\">💵</tg-emoji></b>\n"
+            "<tg-emoji emoji-id=\"5210952531676504517\">❌</tg-emoji> Отмена заказа вернёт вас в панель управления подпиской.</blockquote>\n\n"
+            "<i>После успешной оплаты подписка обновится автоматически <tg-emoji emoji-id=\"5264727218734524899\">🔄</tg-emoji></i>"
         ),
         reply_markup=kb.crypto_pay_keyboard(invoice["pay_url"]),
         parse_mode="HTML"
@@ -1093,115 +1198,6 @@ async def add_device_pay_crypto(callback: CallbackQuery):
             message=callback.message
         )
     )
-
-# Авточекеры статуса платежа
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - 
-async def auto_check_add_device_payment_yookassa(
-    *,
-    tg_id: int,
-    message: Message,
-    timeout: int = 10 * 60,
-    interval: int = 12
-):
-    start_ts = time.time()
-
-    while True:
-        await asyncio.sleep(interval)
-
-        session = SESSION.get(tg_id)
-        if not session or "add_device" not in session:
-            return  # пользователь ушёл
-
-        payment = session["add_device"].get("payment")
-        if not payment or not payment.get("payment_id"):
-            return
-
-        payment_id = payment["payment_id"]
-
-        # ─── проверяем платёж ───────────────────────
-        if yoo.check_payment(payment_id):
-            # ─── SUCCESS ───────────────────────────
-            subscription = session["subscription"]
-
-            await rm.update_subscription_hwid_limit(
-                sub_uuid=subscription["uuid"],
-                hwid_limit=payment["new_limit"],
-            )
-
-            # обновляем локально
-            subscription["hwidDeviceLimit"] = payment["new_limit"]
-
-            # чистим add_device
-            session.pop("add_device", None)
-            # ─── возвращаем пользователя в панель ───
-            await render_manage_subscription_panel(
-                tg_id=tg_id,
-                message=message,
-                subscription=subscription
-            )
-            return
-
-        # ─── таймаут ───────────────────────────────
-        if time.time() - start_ts > timeout:
-            await message.edit_caption(
-                caption=(
-                    "⏳ Время ожидания оплаты истекло.\n\n"
-                    "Если вы оплатили — напишите в поддержку."
-                ),
-                parse_mode="HTML"
-            )
-            return
-async def auto_check_add_device_payment_crypto(
-    *,
-    tg_id: int,
-    message: Message,
-    timeout: int = 10 * 60,
-    interval: int = 12
-):
-    start_ts = time.time()
-
-    while True:
-        await asyncio.sleep(interval)
-
-        session = SESSION.get(tg_id)
-        if not session or "add_device" not in session:
-            return
-
-        payment = session["add_device"]["payment"]
-        invoice_id = payment.get("crypto_invoice_id")
-
-        if not invoice_id:
-            return
-
-        if cb.check_crypto_invoice(invoice_id):
-            subscription = session["subscription"]
-
-            # 🔹 бизнес-логика
-            await rm.update_subscription_hwid_limit(
-                sub_uuid=subscription["uuid"],
-                hwid_limit=payment["new_limit"]
-            )
-
-            subscription["hwidDeviceLimit"] = payment["new_limit"]
-            session.pop("add_device", None)
-            # 🔹 возврат в панель
-            await render_manage_subscription_panel(
-                tg_id=tg_id,
-                message=message,
-                subscription=subscription
-            )
-            return
-
-        if time.time() - start_ts > timeout:
-            await message.edit_caption(
-                caption=(
-                    "⏳ Время ожидания оплаты истекло.\n\n"
-                    "Если вы оплатили — напишите в поддержку."
-                ),
-                parse_mode="HTML"
-            )
-            return
         
 # Функция возвращения пользователя в панель управления    
 async def render_manage_subscription_panel(
@@ -1241,15 +1237,15 @@ async def render_manage_subscription_panel(
         device_lines = "• Нет подключённых устройств\n"
 
     caption = (
-        "✅ <b>Количество устройств успешно увеличено</b>\n"
-        "🛠️ <b>Вы вернулись в панель управление подпиской</b>\n\n"
-        f"<blockquote>💎 <b>Тариф:</b> {clean_plan(subscription.get('description'))}\n"
+        "<tg-emoji emoji-id=\"5206607081334906820\">✔️</tg-emoji> <b>Количество устройств успешно увеличено</b>\n"
+        "<tg-emoji emoji-id=\"5895592588064328942\">⚙️</tg-emoji> <b>Вы вернулись в панель управление подпиской</b>\n\n"
+        f"<blockquote><tg-emoji emoji-id=\"5427168083074628963\">💎</tg-emoji> <b>Тариф:</b> {clean_plan(subscription.get('description'))}\n"
         f"───────────────────────────────\n"
-        f"📱 <b>Устройства:</b> <b>{devices_str}</b>\n\n"
+        f"<tg-emoji emoji-id=\"5407025283456835913\">📱</tg-emoji> <b>Устройства:</b> <b>{devices_str}</b>\n\n"
         f"{device_lines}"
         f"───────────────────────────────\n"
-        f"🕒 <b>Начало:</b> {fmt_date(subscription.get('createdAt'))}\n"
-        f"⏳ <b>Окончание:</b> {fmt_date(subscription.get('expireAt'))}\n"
+        f"<tg-emoji emoji-id=\"5382194935057372936\">⏱</tg-emoji> <b>Начало:</b> {fmt_date(subscription.get('createdAt'))}\n"
+        f"<tg-emoji emoji-id=\"5451732530048802485\">⏳</tg-emoji> <b>Окончание:</b> {fmt_date(subscription.get('expireAt'))}\n"
         f"───────────────────────────────</blockquote>\n"
     )
 
@@ -1284,12 +1280,12 @@ async def add_device_pay_rp(callback: CallbackQuery):
     photo = FSInputFile("./assets/rp_knight.jpg")
 
     caption = (
-        f"💸 <b>Оплата при помощи RP</b>\n\n"
-        f"<blockquote>🛒 Итоговая цена: <b>{amount}₽</b>\n"
-        f"🟪 Стоимость в RP: <b>{amount_rp} RP</b>\n"
+        f"<tg-emoji emoji-id=\"5775979247814318159\">🛡️</tg-emoji> <b>Оплата при помощи RP</b>\n\n"
+        f"<blockquote><tg-emoji emoji-id=\"5431499171045581032\">🛒</tg-emoji> Итоговая цена: <b>{amount} <tg-emoji emoji-id=\"5231449120635370684\">💸</tg-emoji></b>\n"
+        f"<tg-emoji emoji-id=\"5775979247814318159\">🛡️</tg-emoji> Стоимость в RP: <b>{amount_rp} RP</b>\n"
         f"📦 Ваш баланс: <b>{user_rp} RP</b></blockquote>\n\n"
-        "❌ Отмена заказа вернёт вас в панель управления подпиской.\n\n"
-        "<i>Подтвердить оплату RP?</i>"
+        "<tg-emoji emoji-id=\"5210952531676504517\">❌</tg-emoji> Отмена заказа вернёт вас в панель управления подпиской.\n\n"
+        "<i>Подтвердить оплату <tg-emoji emoji-id=\"5775979247814318159\">🛡️</tg-emoji> RP?</i>"
     )
 
     # Выводим окно с подтверждением
@@ -1364,9 +1360,9 @@ async def try_key(callback: CallbackQuery):
             media=InputMediaPhoto(
                 media=photo,
                 caption=(
-                    "🏠 <b>Вы уже использовали пробный тариф.</b>\n"
-                    "⚠️ <b>Для продления доступа оформите платную подписку.</b>\n\n"
-                    "👀 <i>Если ваша пробная подписка ещё работает, то информация о ней находится в Профиле</i>👤"
+                    "<tg-emoji emoji-id=\"5465226866321268133\">🏠</tg-emoji> <b>Вы уже использовали пробный тариф.</b>\n\n"
+                    "<tg-emoji emoji-id=\"5447644880824181073\">⚠️</tg-emoji> <b>Для продления доступа оформите платную подписку.</b>\n\n"
+                    "<tg-emoji emoji-id=\"5210956306952758910\">👀</tg-emoji> <i>Если ваша пробная подписка ещё работает, то информация о ней находится в Профиле</i><tg-emoji emoji-id=\"5373012449597335010\">👤</tg-emoji>"
                 ),
                 parse_mode="HTML"
             ),
@@ -1385,10 +1381,10 @@ async def try_key(callback: CallbackQuery):
             media=InputMediaPhoto(
                 media=photo,
                 caption=(
-                    f"⚠️ <b>У вас есть активная платная подписка.</b>\n\n"
-                    f"<blockquote>🏡 <b>Вы были возвращены в главное меню</b>\n"
+                    f"<tg-emoji emoji-id=\"5447644880824181073\">⚠️</tg-emoji> <b>У вас есть активная платная подписка.</b>\n\n"
+                    f"<blockquote><tg-emoji emoji-id=\"5465226866321268133\">🏠</tg-emoji> <b>Вы были возвращены в главное меню</b>\n"
                     "<i>Зачем мучиться игрушечным лезвием, когда в твоих руках сверкает клинок ночной кары?</i></blockquote>\n\n"
-                    f"<i>Выбери интересующий тебя вариант</i> 👇"
+                    f"<i>Выбери интересующий тебя вариант</i> <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji>"
                 ),
                 parse_mode="HTML"
             ),
@@ -1422,13 +1418,13 @@ async def try_key(callback: CallbackQuery):
             media=InputMediaPhoto(
                 media=photo,
                 caption=(
-                    f"🏷️ <b>Пробный период активирован!</b>\n\n"
-                    f"<blockquote>🕒 <b>Начало:</b> {start_str}\n"
-                    f"⏳ <b>Окончание:</b> {end_str}\n"
-                    f"📱 <b>Кол-во устройств:</b> 3\n"
-                    f"📦 <b>Трафик:</b> 30 ГБ\n\n"
-                    f"🔗 <b>Подписка:</b> {sub_link}</blockquote>\n\n"
-                    f"<i>Чтобы воспользоваться VPN нажмите '🔗 Подключить VPN' и следуйте инструкциям</i>"
+                    f"<tg-emoji emoji-id=\"5461151367559141950\">🎉</tg-emoji> <b>Пробный период активирован!</b>\n\n"
+                    f"<blockquote><tg-emoji emoji-id=\"5382194935057372936\">⏱</tg-emoji> <b>Начало:</b> {start_str}\n"
+                    f"<tg-emoji emoji-id=\"5451732530048802485\">⏳</tg-emoji> <b>Окончание:</b> {end_str}\n"
+                    f"<tg-emoji emoji-id=\"5407025283456835913\">📱</tg-emoji> <b>Кол-во устройств:</b> 3\n"
+                    f"<tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji> <b>Трафик:</b> 30 ГБ\n\n"
+                    f"<tg-emoji emoji-id=\"5271604874419647061\">🔗</tg-emoji> <b>Подписка:</b> {sub_link}</blockquote>\n\n"
+                    f"<i>Чтобы воспользоваться VPN нажмите «<tg-emoji emoji-id=\"5271604874419647061\">🔗</tg-emoji> Подключить VPN» и следуйте инструкциям</i>"
                 ),
                 parse_mode="HTML"
             ),
@@ -1460,11 +1456,11 @@ async def back_main(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "🛡️ <b>С возвращение! Вот ты и снова в главном меню.</b>\n\n"
-                "<blockquote>⚔️ Получай доступ и захватывай новые вершины!\n\n"
+                "<tg-emoji emoji-id=\"5017108172138087141\">🛡</tg-emoji> <b>С возвращение! Вот ты и снова в главном меню.</b>\n\n"
+                "<blockquote><tg-emoji emoji-id=\"5408935401442267103\">⚔️</tg-emoji> Получай доступ и захватывай новые вершины!\n\n"
                 "<i>Отсюда можно легко перейти к нужным возможностям.\n"
                 "Если что-то понадобится — просто выбери подходящий пункт.</i></blockquote>\n\n"
-                "<i>Начнём? 👇</i>"
+                "<i>Начнём? <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji></i>"
             ),
             parse_mode="HTML"
         ),
@@ -1489,11 +1485,11 @@ async def back_main(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "🛡️ <b>С возвращение! Вот ты и снова в главном меню.</b>\n\n"
-                "<blockquote>⚔️ Получай доступ и захватывай новые вершины!\n\n"
+                "<tg-emoji emoji-id=\"5017108172138087141\">🛡</tg-emoji> <b>С возвращение! Вот ты и снова в главном меню.</b>\n\n"
+                "<blockquote><tg-emoji emoji-id=\"5408935401442267103\">⚔️</tg-emoji> Получай доступ и захватывай новые вершины!\n\n"
                 "<i>Отсюда можно легко перейти к нужным возможностям.\n"
                 "Если что-то понадобится — просто выбери подходящий пункт.</i></blockquote>\n\n"
-                "<i>Начнём? 👇</i>"
+                "<i>Начнём? <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji></i>"
             ),
             parse_mode="HTML"
         ),
@@ -1512,9 +1508,9 @@ async def back_main(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                f"🏰 <b> Добро пожаловать в Чертоги Стабильного Соединения</b>\n\n"
+                f"<tg-emoji emoji-id=\"5429403746696189687\">🏰</tg-emoji> <b> Добро пожаловать в Чертоги Стабильного Соединения</b>\n\n"
                 f"✠ Здесь рыцари шёпотом обмениваются тайными путями, недоступные чужим глазам...\n\n"
-                f"<i>Выберите нужное действие ниже</i> 👇"
+                f"<i>Выберите нужное действие ниже</i> <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji>"
             ),
             parse_mode="HTML"
         ),
@@ -1536,8 +1532,8 @@ async def back_main(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                f"<b>Выбор тарифа решает твою VPN-эпопею</b> 🌐\n\n" 
-                f"<i>Остаётся лишь выбрать подходящий</i> 🤔" 
+                f"<b>Выбор тарифа решает твою VPN-эпопею</b> <tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji>\n\n" 
+                f"<i>Остаётся лишь выбрать подходящий</i> <tg-emoji emoji-id=\"5370930189322688800\">🤫</tg-emoji>" 
             ),
             parse_mode="HTML"
         ),
@@ -1560,8 +1556,8 @@ async def back_main(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                f"<b>Выбор тарифа решает твою VPN-эпопею</b> 🌐\n\n" 
-                f"<i>Остаётся лишь выбрать подходящий</i> 🤔" 
+                f"<b>Выбор тарифа решает твою VPN-эпопею</b> <tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji>\n\n" 
+                f"<i>Остаётся лишь выбрать подходящий</i> <tg-emoji emoji-id=\"5370930189322688800\">🤫</tg-emoji>" 
             ),
             parse_mode="HTML"
         ),
@@ -1579,8 +1575,8 @@ async def back_main(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                f"<b>Продление подписки помогает решить твою VPN-эпопею</b> 🌐\n\n" 
-                f"<i>Осталось немного путник, продолжай свой путь</i> 🫡" 
+                f"<b>Продление подписки помогает решить твою VPN-эпопею</b> <tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji>\n\n" 
+                f"<i>Осталось немного путник, продолжай свой путь</i> <tg-emoji emoji-id=\"5370930189322688800\">🤫</tg-emoji>" 
             ),
             parse_mode="HTML"
         ),
@@ -1604,10 +1600,10 @@ async def tarif(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "🛡 <b>Раздел расширенных возможностей и усиленной безопасности</b>\n\n"
-                "<blockquote><i>В данные тарифы не входят серверы, предназначенные для обхода белых списков 🚫\n\n"
+                "<tg-emoji emoji-id=\"5017108172138087141\">🛡</tg-emoji> <b>Раздел расширенных возможностей и усиленной безопасности</b>\n\n"
+                "<blockquote><i>В данные тарифы не входят серверы, предназначенные для обхода белых списков <tg-emoji emoji-id=\"5240241223632954241\">🚫</tg-emoji>\n\n"
                 "Они рассчитаны на более простые задачи и также подойдут пользователям из регионов, где ещё отсутствуют полноценные блокировки</i>\n\n"
-                "🌍 <b>Сервера</b>: 🇺🇸 | 🇩🇪 | 🇳🇱 | 🇫🇮 | 🇷🇺 | 🇫🇷 | 🇵🇱 | 🇸🇪 | 🇪🇪</blockquote>\n\n"
+                "<tg-emoji emoji-id=\"5399898266265475100\">🌍</tg-emoji> <b>Сервера</b>: <tg-emoji emoji-id=\"5202021044105257611\">🇺🇸</tg-emoji> | <tg-emoji emoji-id=\"5409360418520967565\">🇩🇪</tg-emoji> | <tg-emoji emoji-id=\"5411124743841524806\">🇳🇱</tg-emoji> | <tg-emoji emoji-id=\"5382151560182642075\">🇫🇮</tg-emoji> | <tg-emoji emoji-id=\"5449408995691341691\">🇷🇺</tg-emoji> | <tg-emoji emoji-id=\"5202132623060640759\">🇫🇷</tg-emoji> | <tg-emoji emoji-id=\"5291847690940852675\">🇵🇱</tg-emoji> | <tg-emoji emoji-id=\"5384542551296455687\">🇸🇪</tg-emoji> | <tg-emoji emoji-id=\"5411174505332615466\">🇪🇪</tg-emoji></blockquote>\n\n"
                 "🛣 <i>Ваш путь начинается здесь, просто двигайтесь вперёд...</i>"
             ),
             parse_mode="HTML"
@@ -1632,10 +1628,10 @@ async def tarif(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "🥷 <b>Раздел специальных тарифов</b>\n\n"
-                "<blockquote><i>Режимы с расширенными возможностями обхода блокировок и улучшенной стабильностью подключения</i> 📶\n\n"
-                "🌍 <b>Сервера</b>:  🇷🇺 | 🇪🇪 | 🇫🇮 | 🇩🇪 | 🇫🇷 | 🇵🇱 | 🇸🇪 | 🇳🇱</blockquote>\n\n"
-                "<i>Выбери тариф — и получи более свободный доступ к нужным ресурсам 👇</i>"
+                "<tg-emoji emoji-id=\"5420266513011579594\">🪆</tg-emoji> <b>Раздел специальных тарифов</b>\n\n"
+                "<blockquote><i>Режимы с расширенными возможностями обхода блокировок и улучшенной стабильностью подключения</i> <tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji>\n\n"
+                "<tg-emoji emoji-id=\"5399898266265475100\">🌍</tg-emoji> <b>Сервера</b>:  <tg-emoji emoji-id=\"5409360418520967565\">🇩🇪</tg-emoji> | <tg-emoji emoji-id=\"5411124743841524806\">🇳🇱</tg-emoji> | <tg-emoji emoji-id=\"5382151560182642075\">🇫🇮</tg-emoji> | <tg-emoji emoji-id=\"5449408995691341691\">🇷🇺</tg-emoji> | <tg-emoji emoji-id=\"5202132623060640759\">🇫🇷</tg-emoji> | <tg-emoji emoji-id=\"5291847690940852675\">🇵🇱</tg-emoji> | <tg-emoji emoji-id=\"5411174505332615466\">🇪🇪</tg-emoji></blockquote>\n\n"
+                "<i>Выбери тариф — и получи более свободный доступ к нужным ресурсам <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji></i>"
             ),
             parse_mode="HTML"
         ),
@@ -1659,10 +1655,10 @@ async def tarif(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "💥 <b>Раздел мульти-доступа</b>\n\n"
-                "<blockquote><i>Это место, где вы можете получить доступ ко всем серверам сервиса в одной подписке</i> 🛜\n\n"
-                "🌍 <b>Сервера</b>: 🇺🇸 | 🇷🇺 | 🇳🇱 | 🇫🇮 | 🇩🇪 | 🇫🇷 | 🇵🇱 | 🇸🇪 | 🇪🇪</blockquote>\n\n"
-                "<i>Выбери тариф — и начни свой путь 👇</i>"
+                "<tg-emoji emoji-id=\"5276032951342088188\">💥</tg-emoji> <b>Раздел мульти-доступа</b>\n\n"
+                "<blockquote><i>Это место, где вы можете получить доступ ко всем серверам сервиса в одной подписке</i> <tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji>\n\n"
+                "<tg-emoji emoji-id=\"5399898266265475100\">🌍</tg-emoji> <b>Сервера</b>: <tg-emoji emoji-id=\"5202021044105257611\">🇺🇸</tg-emoji> | <tg-emoji emoji-id=\"5409360418520967565\">🇩🇪</tg-emoji> | <tg-emoji emoji-id=\"5411124743841524806\">🇳🇱</tg-emoji> | <tg-emoji emoji-id=\"5382151560182642075\">🇫🇮</tg-emoji> | <tg-emoji emoji-id=\"5449408995691341691\">🇷🇺</tg-emoji> | <tg-emoji emoji-id=\"5202132623060640759\">🇫🇷</tg-emoji> | <tg-emoji emoji-id=\"5291847690940852675\">🇵🇱</tg-emoji> | <tg-emoji emoji-id=\"5384542551296455687\">🇸🇪</tg-emoji> | <tg-emoji emoji-id=\"5411174505332615466\">🇪🇪</tg-emoji></blockquote>\n\n"
+                "<i>Выбери тариф — и начни свой путь <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji></i>"
             ),
             parse_mode="HTML"
         ),
@@ -1681,13 +1677,13 @@ async def trysub(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                "🏆 <b>Тариф: Пробный</b>\n"
+                "<tg-emoji emoji-id=\"5409008750893734809\">🏆</tg-emoji> <b>Тариф: Пробный</b>\n"
               "<blockquote>─────────────────────────────────\n"
-              "│ 🔖 <b>Описание:</b> Ограниченный по времени доступ ко всем серверам сервиса\n"
-              "│ 🗓  <b>Кол-во Дней:</b> 2\n"
-              "│ 🌐 <b>Трафик:</b> 30 GB\n"
-              "│ 📱 <b>Кол-во устройств:</b> 3\n"
-              "│ 💶 <b>Стоимость:</b> 0₽\n"
+              "│ <tg-emoji emoji-id=\"5222444124698853913\">🔖</tg-emoji> <b>Описание:</b> Ограниченный по времени доступ ко всем серверам сервиса\n"
+              "│ <tg-emoji emoji-id=\"5431897022456145283\">📆</tg-emoji> <b>Кол-во Дней:</b> 2\n"
+              "│ <tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji> <b>Трафик:</b> 30 GB\n"
+              "│ <tg-emoji emoji-id=\"5407025283456835913\">📱</tg-emoji> <b>Кол-во устройств:</b> 3\n"
+              "│ <tg-emoji emoji-id=\"5776310664670746359\">💸</tg-emoji> <b>Стоимость:</b> 0 <tg-emoji emoji-id=\"5231449120635370684\">💸</tg-emoji>\n"
               "─────────────────────────────────</blockquote>"
             ),
             parse_mode="HTML"
@@ -1706,8 +1702,8 @@ async def handle_tariff_choice(callback: CallbackQuery):
 
     if has_active:
         await callback.answer(
-            "🚫 У вас уже есть активная подписка этого типа!\n\n"
-            "⚡️ Продление станет доступно после окончания.",
+            "<tg-emoji emoji-id=\"5240241223632954241\">🚫</tg-emoji> У вас уже есть активная подписка этого типа!\n\n"
+            "<tg-emoji emoji-id=\"5431449001532594346\">⚡️</tg-emoji> Продление станет доступно после окончания.",
             show_alert=True
         )
         return
@@ -1732,10 +1728,10 @@ async def handle_tariff_choice(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                f"⚙️ <b>Настройка тарифа: {tariff_code}</b>\n\n"
-                f"<blockquote>📱 Выберите количество устройств.\n"
-                f"➕ Цена за доп. устройство: <b>39₽ / мес</b></blockquote>\n\n"
-                f"<i>Выберите количество устройств 👇</i>"
+                f"<tg-emoji emoji-id=\"5341715473882955310\">⚙️</tg-emoji> <b>Настройка тарифа: {tariff_code}</b>\n\n"
+                f"<blockquote><tg-emoji emoji-id=\"5407025283456835913\">📱</tg-emoji> Выберите количество устройств.\n"
+                f"<tg-emoji emoji-id=\"5226945370684140473\">➕</tg-emoji> Цена за доп. устройство: <b>39₽ / мес</b></blockquote>\n\n"
+                f"<i>Выберите количество устройств <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji></i>"
             ),
             parse_mode="HTML"
         ),
@@ -1829,27 +1825,27 @@ async def devices_next(callback: CallbackQuery):
     photo = FSInputFile(photo_path)
 
     text = (
-        f"<blockquote><b>☑️ Подтверждение заказа</b></blockquote>\n\n"
-        f"<blockquote>💎 Тариф: <b>{tariff_code} | В него входит:</b>\n"
+        f"<blockquote><b><tg-emoji emoji-id=\"5454096630372379732\">☑️</tg-emoji> Подтверждение заказа</b></blockquote>\n\n"
+        f"<blockquote><tg-emoji emoji-id=\"5427168083074628963\">💎</tg-emoji> Тариф: <b>{tariff_code} | В него входит:</b>\n"
         f"─────────────────────────────\n"
-        f"🗓 Дней: <b>{days}</b>\n"
-        f"🌐 Трафик: <b>{tariff['traffic']}</b>\n"
-        f"📱 Устройства: <b>{devices_total}</b>\n"
-        f"➕ Доп: <b>{devices_extra} × 39₽ / мес</b>\n"
+        f"<tg-emoji emoji-id=\"5431897022456145283\">📆</tg-emoji> Дней: <b>{days}</b>\n"
+        f"<tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji> Трафик: <b>{tariff['traffic']}</b>\n"
+        f"<tg-emoji emoji-id=\"5407025283456835913\">📱</tg-emoji> Устройства: <b>{devices_total}</b>\n"
+        f"<tg-emoji emoji-id=\"5226945370684140473\">➕</tg-emoji> Доп: <b>{devices_extra} × 39₽ / мес</b>\n"
         f"─────────────────────────────</blockquote>\n\n"
     )
     if discount:
-        text += f"💰 Сумма заказа: <b>{base_price}₽ + {extra_price}₽ = {full_price}₽</b>\n"
+        text += f"<tg-emoji emoji-id=\"5431499171045581032\">🛒</tg-emoji> Сумма заказа: <b>{base_price}₽ + {extra_price}₽ = {full_price}₽</b>\n"
     else:
-        text += f"💰 Сумма заказа: <b>{base_price}₽ + {extra_price}₽ = {full_price}₽</b>\n\n"
+        text += f"<tg-emoji emoji-id=\"5431499171045581032\">🛒</tg-emoji> Сумма заказа: <b>{base_price}₽ + {extra_price}₽ = {full_price}₽</b>\n\n"
         
     if discount:
-        text += (f"🎁 Скидка применена: <b>-{discount}%</b>\n"
-                f"💵 Итоговая цена: <b>{final_price}₽</b>\n\n"
+        text += (f"<tg-emoji emoji-id=\"5406683434124859552\">🛍</tg-emoji> Скидка применена: <b>-{discount}%</b>\n"
+                f"<tg-emoji emoji-id=\"5201873447554145566\">💵</tg-emoji> Итоговая цена: <b>{final_price}₽</b>\n\n"
             )
 
     
-    text += "<i>Подтвердите, чтобы перейти к оплате</i> 👇"
+    text += "<i>Подтвердите, чтобы перейти к оплате</i> <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji>"
 
     await callback.message.edit_media(
         InputMediaPhoto(media=photo, caption=text, parse_mode="HTML"),
@@ -1872,29 +1868,29 @@ async def back_to_tariffs(callback: CallbackQuery):
         markup = kb.tariffs_b
         photo = "./assets/base_vpn_knight.jpg"
         caption = (
-                "↩️ <b>Вы вернулись на развилку.</b>\n\n"
-                "<blockquote><i>В данные тарифы не входят серверы, предназначенные для обхода белых списков 🚫\n\n"
+                "<tg-emoji emoji-id=\"5339061961483100987\">👉</tg-emoji> <b>Вы вернулись на развилку.</b>\n\n"
+                "<blockquote><i>В данные тарифы не входят серверы, предназначенные для обхода белых списков <tg-emoji emoji-id=\"5240241223632954241\">🚫</tg-emoji>\n\n"
                 "Они рассчитаны на более простые задачи и также подойдут пользователям из регионов, где ещё отсутствуют полноценные блокировки</i>\n\n"
-                "🌍 <b>Сервера</b>: 🇺🇸 | 🇩🇪 | 🇳🇱 | 🇫🇮 | 🇷🇺 | 🇫🇷 | 🇵🇱 | 🇸🇪 | 🇪🇪</blockquote>\n\n"
+                "<tg-emoji emoji-id=\"5399898266265475100\">🌍</tg-emoji> <b>Сервера</b>: <tg-emoji emoji-id=\"5202021044105257611\">🇺🇸</tg-emoji> | <tg-emoji emoji-id=\"5409360418520967565\">🇩🇪</tg-emoji> | <tg-emoji emoji-id=\"5411124743841524806\">🇳🇱</tg-emoji> | <tg-emoji emoji-id=\"5382151560182642075\">🇫🇮</tg-emoji> | <tg-emoji emoji-id=\"5449408995691341691\">🇷🇺</tg-emoji> | <tg-emoji emoji-id=\"5202132623060640759\">🇫🇷</tg-emoji> | <tg-emoji emoji-id=\"5291847690940852675\">🇵🇱</tg-emoji> | <tg-emoji emoji-id=\"5384542551296455687\">🇸🇪</tg-emoji> | <tg-emoji emoji-id=\"5411174505332615466\">🇪🇪</tg-emoji></blockquote>\n\n"
                 "🛣 <i>Путь продолжается — выберите дорогу, что поведёт вас дальше…</i>\n"
             )
     elif group == "special":
         markup = kb.tariffs_s
         photo = "./assets/obhodwl_vpn_knight.jpg"
         caption = (
-                "🥷 <b>Раздел специальных тарифов</b>\n\n"
-                "<blockquote><i>Режимы с расширенными возможностями обхода блокировок и улучшенной стабильностью подключения</i> 📶\n\n"
-                "🌍 <b>Сервера</b>:  🇷🇺 | 🇪🇪 | 🇫🇮 | 🇩🇪 | 🇫🇷 | 🇵🇱 | 🇸🇪 | 🇳🇱</blockquote>\n\n"
-                "<i>Выбери тариф — и получи более свободный доступ к нужным ресурсам 👇</i>"
+                "<tg-emoji emoji-id=\"5420266513011579594\">🪆</tg-emoji> <b>Раздел специальных тарифов</b>\n\n"
+                "<blockquote><i>Режимы с расширенными возможностями обхода блокировок и улучшенной стабильностью подключения</i> <tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji>\n\n"
+                "<tg-emoji emoji-id=\"5399898266265475100\">🌍</tg-emoji> <b>Сервера</b>:  <tg-emoji emoji-id=\"5409360418520967565\">🇩🇪</tg-emoji> | <tg-emoji emoji-id=\"5411124743841524806\">🇳🇱</tg-emoji> | <tg-emoji emoji-id=\"5382151560182642075\">🇫🇮</tg-emoji> | <tg-emoji emoji-id=\"5449408995691341691\">🇷🇺</tg-emoji> | <tg-emoji emoji-id=\"5202132623060640759\">🇫🇷</tg-emoji> | <tg-emoji emoji-id=\"5291847690940852675\">🇵🇱</tg-emoji> | <tg-emoji emoji-id=\"5411174505332615466\">🇪🇪</tg-emoji></blockquote>\n\n"
+                "<i>Выбери тариф — и получи более свободный доступ к нужным ресурсам <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji></i>"
             )
     elif group == "multi":
         markup = kb.tariffs_m
         photo = "./assets/multi_vpn_knight.jpg"
         caption = (
-                "💥 <b>Раздел мульти-доступа</b>\n\n"
-                "<blockquote><i>Это место, где вы можете получить доступ ко всем серверам сервиса в одной подписке</i> 🛜\n\n"
-                "🌍 <b>Сервера</b>: 🇺🇸 | 🇩🇪 | 🇳🇱 | 🇫🇮 | 🇷🇺 | 🇫🇷 | 🇵🇱 | 🇸🇪 | 🇪🇪</blockquote>\n\n"
-                "<i>Выбери тариф — и начни свой путь 👇</i>"
+                "<tg-emoji emoji-id=\"5276032951342088188\">💥</tg-emoji> <b>Раздел мульти-доступа</b>\n\n"
+                "<blockquote><i>Это место, где вы можете получить доступ ко всем серверам сервиса в одной подписке</i> <tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji>\n\n"
+                "<tg-emoji emoji-id=\"5399898266265475100\">🌍</tg-emoji> <b>Сервера</b>: <tg-emoji emoji-id=\"5202021044105257611\">🇺🇸</tg-emoji> | <tg-emoji emoji-id=\"5409360418520967565\">🇩🇪</tg-emoji> | <tg-emoji emoji-id=\"5411124743841524806\">🇳🇱</tg-emoji> | <tg-emoji emoji-id=\"5382151560182642075\">🇫🇮</tg-emoji> | <tg-emoji emoji-id=\"5449408995691341691\">🇷🇺</tg-emoji> | <tg-emoji emoji-id=\"5202132623060640759\">🇫🇷</tg-emoji> | <tg-emoji emoji-id=\"5291847690940852675\">🇵🇱</tg-emoji> | <tg-emoji emoji-id=\"5384542551296455687\">🇸🇪</tg-emoji> | <tg-emoji emoji-id=\"5411174505332615466\">🇪🇪</tg-emoji></blockquote>\n\n"
+                "<i>Выбери тариф — и начни свой путь <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji></i>"
             )
     else:
         return await callback.answer("Ошибка: неизвестная группа тарифа")
@@ -1925,10 +1921,10 @@ async def back_to_devices(callback: CallbackQuery):
     photo = FSInputFile(photo_path)
 
     caption = (
-        f"⚙️ <b>Настройка тарифа: {tariff_code}</b>\n\n"
-        f"<blockquote>📱 Выберите количество устройств.\n"
-        f"➕ Цена за доп. устройство: <b>39₽ / мес</b></blockquote>\n\n"
-        f"<i>Выберите количество устройств 👇</i>"
+        f"<tg-emoji emoji-id=\"5341715473882955310\">⚙️</tg-emoji> <b>Настройка тарифа: {tariff_code}</b>\n\n"
+        f"<blockquote><tg-emoji emoji-id=\"5407025283456835913\">📱</tg-emoji> Выберите количество устройств.\n"
+        f"<tg-emoji emoji-id=\"5226945370684140473\">➕</tg-emoji> Цена за доп. устройство: <b>39₽ / мес</b></blockquote>\n\n"
+        f"<i>Выберите количество устройств <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji></i>"
     )
 
     await callback.message.edit_media(
@@ -1969,8 +1965,8 @@ async def confirm_order(callback: CallbackQuery):
     # Переход к выбору способа оплаты
     text = (
         "<b>🜃 Вы вошли в «Зал Монет и Теней»</b>\n\n"
-        "Перед вами стоит <b>Платёжный Сундучок</b> 📦, он ждёт вашего решения.\n\n"
-        "<i>Выберите способ оплаты 👇</i>"
+        "Перед вами стоит <b>Платёжный Сундучок</b> <tg-emoji emoji-id=\"5278467510604160626\">💰</tg-emoji>, он ждёт вашего решения.\n\n"
+        "<i>Выберите способ оплаты <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji></i>"
     )
 
     await callback.message.edit_media(
@@ -2002,8 +1998,8 @@ async def go_back(callback: CallbackQuery):
 
         text = (
             "<b>🜃 Вы вернулись в «Зал Монет и Теней»</b>\n\n"
-            "Перед вами снова стоит <b>Платёжный Сундучок</b> 📦.\n\n"
-            "<i>Выберите способ оплаты 👇</i>"
+            "Перед вами снова стоит <b>Платёжный Сундучок</b> <tg-emoji emoji-id=\"5278467510604160626\">💰</tg-emoji>.\n\n"
+            "<i>Выберите способ оплаты <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji></i>"
         )
 
         await callback.message.edit_media(
@@ -2035,8 +2031,8 @@ async def cancel_order(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                f"<b>Заказ отменён! Вы вернулись к выбору типа тарифа</b> 🌐\n\n" 
-                f"<i>Всё ещё остаётся лишь выбрать подходящий...</i> 🤔" 
+                f"<b>Заказ отменён! Вы вернулись к выбору типа тарифа</b> <tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji>\n\n" 
+                f"<i>Всё ещё остаётся лишь выбрать подходящий...</i> <tg-emoji emoji-id=\"5370930189322688800\">🤫</tg-emoji>" 
             ),
             parse_mode="HTML"
         ),
@@ -2078,11 +2074,11 @@ async def handle_crypto_payment(callback: CallbackQuery):
 
     # Формируем красивый текст
     caption = (
-        f"💸 <b>Оплата тарифа: {tariff_code}</b>\n\n"
-        f"🛒 Общая сумма заказа: <b>{amount_rub}₽</b>\n"
-        f"🌐 К оплате в CryptoBot: <b>{amount_usd}$</b>\n\n"
-        "<b>После оплаты обязательно нажмите кнопку «🔄 Проверить оплату»</b>\n\n"
-        "<i>Нажмите кнопку ниже, чтобы перейти к оплате 👇</i>"
+        f"<tg-emoji emoji-id=\"5776310664670746359\">💸</tg-emoji> <b>Оплата тарифа: {tariff_code}</b>\n\n"
+        f"<tg-emoji emoji-id=\"5431499171045581032\">🛒</tg-emoji> Общая сумма заказа: <b>{amount_rub} <tg-emoji emoji-id=\"5231449120635370684\">💸</tg-emoji></b>\n"
+        f"<tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji> К оплате в CryptoBot: <b>{amount_usd} <tg-emoji emoji-id=\"5201692367437974073\">💵</tg-emoji></b>\n\n"
+        "<b>После оплаты обязательно нажмите кнопку «<tg-emoji emoji-id=\"5264727218734524899\">🔄</tg-emoji> Проверить оплату»</b>\n\n"
+        "<i>Нажмите кнопку ниже, чтобы перейти к оплате <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji></i>"
     )
 
     # Показываем окно оплаты
@@ -2146,22 +2142,22 @@ async def check_crypto_payment(callback: CallbackQuery):
 
     if user_data["status"] == "created":
         caption_text = (
-            f"🎉 <b>Подписка успешно активирована!</b>\n\n"
-            f"<blockquote>💎 <b>Тариф:</b> {tariff_code}\n\n"
-            f"🕒 <b>Начало:</b> {start_date:%Y-%m-%d %H:%M}\n"
-            f"⏳ <b>Окончание:</b> {end_date:%Y-%m-%d %H:%M}\n"
-            f"📱 <b>Кол-во устройств:</b> {hwid_limit}\n"
-            f"🌐 <b>Трафик:</b> {tariff['traffic']}\n\n"
-            f"📦 <b>Подписка:</b> {sub_link}</blockquote>\n\n"
-            f"<i>Чтобы воспользоваться VPN нажмите '🔗 Подключить VPN' и следуйте инструкциям</i>"
+            f"<tg-emoji emoji-id=\"5461151367559141950\">🎉</tg-emoji> <b>Подписка успешно активирована!</b>\n\n"
+            f"<blockquote><tg-emoji emoji-id=\"5427168083074628963\">💎</tg-emoji> <b>Тариф:</b> {tariff_code}\n\n"
+            f"<tg-emoji emoji-id=\"5382194935057372936\">⏱</tg-emoji> <b>Начало:</b> {start_date:%Y-%m-%d %H:%M}\n"
+            f"<tg-emoji emoji-id=\"5451732530048802485\">⏳</tg-emoji> <b>Окончание:</b> {end_date:%Y-%m-%d %H:%M}\n"
+            f"<tg-emoji emoji-id=\"5407025283456835913\">📱</tg-emoji> <b>Кол-во устройств:</b> {hwid_limit}\n"
+            f"<tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji> <b>Трафик:</b> {tariff['traffic']}\n\n"
+            f"<tg-emoji emoji-id=\"5271604874419647061\">🔗</tg-emoji> <b>Подписка:</b> {sub_link}</blockquote>\n\n"
+            f"<i>Чтобы воспользоваться VPN нажмите '<tg-emoji emoji-id=\"5271604874419647061\">🔗</tg-emoji> Подключить VPN' и следуйте инструкциям</i>"
         )
     else:
         new_end = datetime.fromisoformat(user_data["expire_at"])
         caption_text = (
-            f"♻️ <b>Подписка продлена!</b>\n\n"
-            f"<blockquote>💎 <b>Тариф:</b> {tariff_code}\n\n"
-            f"⏳ <b>Новая дата окончания:</b> {new_end:%Y-%m-%d %H:%M}\n"
-            f"🌐 <b>Трафик:</b> {tariff['traffic']}</blockquote>\n\n"
+            f"<tg-emoji emoji-id=\"5974235702701853774\">🔸</tg-emoji> <b>Подписка продлена!</b>\n\n"
+            f"<blockquote><tg-emoji emoji-id=\"5427168083074628963\">💎</tg-emoji> <b>Тариф:</b> {tariff_code}\n\n"
+            f"<tg-emoji emoji-id=\"5451732530048802485\">⏳</tg-emoji> <b>Новая дата окончания:</b> {new_end:%Y-%m-%d %H:%M}\n"
+            f"<tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji> <b>Трафик:</b> {tariff['traffic']}</blockquote>\n\n"
             f"<blockquote><i>“May the Force be with you.” — Star Wars 🌌</i></blockquote>"
         )
 
@@ -2211,8 +2207,8 @@ async def cancel_payment(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                f"<b>Заказ отменён! Вы вернулись к выбору тарифа</b> 🌐\n\n" 
-                f"<i>Всё ещё остаётся лишь выбрать подходящий</i> 🤔" 
+                f"<b>Заказ отменён! Вы вернулись к выбору тарифа</b> <tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji>\n\n" 
+                f"<i>Всё ещё остаётся лишь выбрать подходящий</i> <tg-emoji emoji-id=\"5370930189322688800\">🤫</tg-emoji>" 
             ),
             parse_mode="HTML"
         ),
@@ -2247,10 +2243,10 @@ async def handle_yookassa_payment(callback: CallbackQuery):
 
     # Формируем текст
     caption = (
-        f"💸 <b>Оплата тарифа: {tariff_code}</b>\n\n"
-        f"🛒 Общая сумма заказа: <b>{amount_rub}₽</b>\n\n"
-        "<b>После оплаты обязательно нажмите кнопку «🔄 Проверить оплату»</b>\n\n"
-        "<i>Нажмите кнопку ниже, чтобы оплатить 👇</i>"
+        f"<tg-emoji emoji-id=\"5776310664670746359\">💸</tg-emoji> <b>Оплата тарифа: {tariff_code}</b>\n\n"
+        f"<tg-emoji emoji-id=\"5431499171045581032\">🛒</tg-emoji> Общая сумма заказа: <b>{amount_rub}₽</b>\n\n"
+        "<b>После оплаты обязательно нажмите кнопку «<tg-emoji emoji-id=\"5264727218734524899\">🔄</tg-emoji> Проверить оплату»</b>\n\n"
+        "<i>Нажмите кнопку ниже, чтобы оплатить <tg-emoji emoji-id=\"5470177992950946662\">👇</tg-emoji></i>"
     )
 
     # Отображаем окно оплаты
@@ -2317,23 +2313,23 @@ async def check_yookassa_payment(callback: CallbackQuery):
 
     if user_data["status"] == "created":
         caption_text = (
-            f"🎉 <b>Подписка успешно активирована!</b>\n\n"
-            f"<blockquote>💎 <b>Тариф:</b> {tariff_code}\n\n"
-            f"🕒 <b>Начало:</b> {start_date:%Y-%m-%d %H:%M}\n"
-            f"⏳ <b>Окончание:</b> {end_date:%Y-%m-%d %H:%M}\n"
-            f"📱 <b>Кол-во устройств:</b> {hwid_limit}\n"
-            f"🌐 <b>Трафик:</b> {tariff['traffic']}\n\n"
-            f"📦 <b>Подписка:</b> {sub_link}</blockquote>\n\n"
-            f"<i>Чтобы воспользоваться VPN нажмите '🔗 Подключить VPN' и следуйте инструкциям</i>"
+            f"<tg-emoji emoji-id=\"5461151367559141950\">🎉</tg-emoji> <b>Подписка успешно активирована!</b>\n\n"
+            f"<blockquote><tg-emoji emoji-id=\"5427168083074628963\">💎</tg-emoji> <b>Тариф:</b> {tariff_code}\n\n"
+            f"<tg-emoji emoji-id=\"5382194935057372936\">⏱</tg-emoji> <b>Начало:</b> {start_date:%Y-%m-%d %H:%M}\n"
+            f"<tg-emoji emoji-id=\"5451732530048802485\">⏳</tg-emoji> <b>Окончание:</b> {end_date:%Y-%m-%d %H:%M}\n"
+            f"<tg-emoji emoji-id=\"5407025283456835913\">📱</tg-emoji> <b>Кол-во устройств:</b> {hwid_limit}\n"
+            f"<tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji> <b>Трафик:</b> {tariff['traffic']}\n\n"
+            f"<tg-emoji emoji-id=\"5271604874419647061\">🔗</tg-emoji> <b>Подписка:</b> {sub_link}</blockquote>\n\n"
+            f"<i>Чтобы воспользоваться VPN нажмите «<tg-emoji emoji-id=\"5271604874419647061\">🔗</tg-emoji> Подключить VPN» и следуйте инструкциям</i>"
         )
     else:
         new_end = datetime.fromisoformat(user_data["expire_at"])
         caption_text = (
-            f"♻️ <b>Подписка продлена!</b>\n\n"
-            f"<blockquote>💎 <b>Тариф:</b> {tariff_code}\n\n"
-            f"⏳ <b>Новая дата окончания:</b> {new_end:%Y-%m-%d %H:%M}\n"
-            f"🌐 <b>Трафик:</b> {tariff['traffic']}</blockquote>\n\n"
-            f"<blockquote><i>“I feel the need… the need for speed!” — Top Gun ✈️</i></blockquote>"
+            f"<tg-emoji emoji-id=\"5974235702701853774\">🔸</tg-emoji> <b>Подписка продлена!</b>\n\n"
+            f"<blockquote><tg-emoji emoji-id=\"5427168083074628963\">💎</tg-emoji> <b>Тариф:</b> {tariff_code}\n\n"
+            f"<tg-emoji emoji-id=\"5451732530048802485\">⏳</tg-emoji> <b>Новая дата окончания:</b> {new_end:%Y-%m-%d %H:%M}\n"
+            f"<tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji> <b>Трафик:</b> {tariff['traffic']}</blockquote>\n\n"
+            f"<blockquote><i>“I feel the need… the need for speed!” — Top Gun <tg-emoji emoji-id=\"5361600266225326825\">✈️</tg-emoji></i></blockquote>"
         )
 
     # ---- Отправляем ----
@@ -2370,8 +2366,8 @@ async def cancel_yookassa_payment(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                f"<b>Заказ отменён! Вы вернулись к выбору тарифа.</b> 🌐\n\n" 
-                f"<i>Всё ещё остаётся лишь выбрать подходящий</i> 🤔" 
+                f"<b>Заказ отменён! Вы вернулись к выбору тарифа.</b> <tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji>\n\n" 
+                f"<i>Всё ещё остаётся лишь выбрать подходящий</i> <tg-emoji emoji-id=\"5370930189322688800\">🤫</tg-emoji>" 
             ),
             parse_mode="HTML"
         ),
@@ -2403,9 +2399,9 @@ async def handle_rp_payment(callback: CallbackQuery):
     invoice["payment_method"] = "rp"
 
     caption = (
-        f"💸 <b>Оплата тарифа: {tariff_code}</b>\n\n"
-        f"<blockquote>🛒 Итоговая цена: <b>{final_price}₽</b>\n"
-        f"🟪 Стоимость в RP: <b>{amount_rp} RP</b>\n"
+        f"<tg-emoji emoji-id=\"5776310664670746359\">💸</tg-emoji> <b>Оплата тарифа: {tariff_code}</b>\n\n"
+        f"<blockquote><tg-emoji emoji-id=\"5431499171045581032\">🛒</tg-emoji> Итоговая цена: <b>{final_price}₽</b>\n"
+        f"<tg-emoji emoji-id=\"5775979247814318159\">🛡️</tg-emoji> Стоимость в RP: <b>{amount_rp} RP</b>\n"
         f"📦 Ваш баланс: <b>{user_rp} RP</b></blockquote>\n\n"
         "<i>Подтвердить оплату RP?</i>"
     )
@@ -2477,23 +2473,23 @@ async def check_rp_payment(callback: CallbackQuery):
 
     if user_data["status"] == "created":
         caption = (
-            f"🎉 <b>Подписка успешно активирована!</b>\n\n"
-            f"<blockquote>💎 <b>Тариф:</b> {tariff_code}\n\n"
-            f"🕒 <b>Начало:</b> {start_date:%Y-%m-%d %H:%M}\n"
-            f"⏳ <b>Окончание:</b> {end_date:%Y-%m-%d %H:%M}\n"
-            f"📱 <b>Кол-во устройств:</b> {hwid_limit}\n"
-            f"🌐 <b>Трафик:</b> {tariff['traffic']}\n\n"
-            f"📦 <b>Подписка:</b> {sub_link}</blockquote>\n\n"
-            f"<i>Чтобы воспользоваться VPN нажмите '🔗 Подключить VPN' и следуйте инструкциям</i>"
+            f"<tg-emoji emoji-id=\"5461151367559141950\">🎉</tg-emoji> <b>Подписка успешно активирована!</b>\n\n"
+            f"<blockquote><tg-emoji emoji-id=\"5427168083074628963\">💎</tg-emoji> <b>Тариф:</b> {tariff_code}\n\n"
+            f"<tg-emoji emoji-id=\"5382194935057372936\">⏱</tg-emoji> <b>Начало:</b> {start_date:%Y-%m-%d %H:%M}\n"
+            f"<tg-emoji emoji-id=\"5451732530048802485\">⏳</tg-emoji> <b>Окончание:</b> {end_date:%Y-%m-%d %H:%M}\n"
+            f"<tg-emoji emoji-id=\"5407025283456835913\">📱</tg-emoji> <b>Кол-во устройств:</b> {hwid_limit}\n"
+            f"<tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji> <b>Трафик:</b> {tariff['traffic']}\n\n"
+            f"<tg-emoji emoji-id=\"5271604874419647061\">🔗</tg-emoji> <b>Подписка:</b> {sub_link}</blockquote>\n\n"
+            f"<i>Чтобы воспользоваться VPN нажмите «<tg-emoji emoji-id=\"5271604874419647061\">🔗</tg-emoji> Подключить VPN» и следуйте инструкциям</i>"
         )
     else:
         new_end = datetime.fromisoformat(user_data["expire_at"])
         caption = (
-            f"♻️ <b>Подписка продлена!</b>\n\n"
-            f"<blockquote>💎 <b>Тариф:</b> {tariff_code}\n\n"
-            f"⏳ <b>Новая дата окончания:</b> {new_end:%Y-%m-%d %H:%M}\n"
-            f"🌐 <b>Трафик:</b> {tariff['traffic']}</blockquote>\n\n"
-            f"<blockquote><i>“It doesn’t matter how fast you go — what matters is that you’re moving in the right direction 🤝”</i></blockquote>"
+            f"<tg-emoji emoji-id=\"5974235702701853774\">🔸</tg-emoji> <b>Подписка продлена!</b>\n\n"
+            f"<blockquote><tg-emoji emoji-id=\"5427168083074628963\">💎</tg-emoji> <b>Тариф:</b> {tariff_code}\n\n"
+            f"<tg-emoji emoji-id=\"5451732530048802485\">⏳</tg-emoji> <b>Новая дата окончания:</b> {new_end:%Y-%m-%d %H:%M}\n"
+            f"<tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji> <b>Трафик:</b> {tariff['traffic']}</blockquote>\n\n"
+            f"<blockquote><i>“It doesn’t matter how fast you go — what matters is that you’re moving in the right direction <tg-emoji emoji-id=\"5372957680174384345\">🤝</tg-emoji>”</i></blockquote>"
         )
 
     # --- Ответ ---
@@ -2527,8 +2523,8 @@ async def cancel_rp_payment(callback: CallbackQuery):
         media=InputMediaPhoto(
             media=photo,
             caption=(
-                f"<b>Заказ отменён! Вы вернулись к выбору тарифа.</b> 🌐\n\n"
-                f"<i>Всё ещё остаётся лишь выбрать подходящий</i> 🤔"
+                f"<b>Заказ отменён! Вы вернулись к выбору тарифа.</b> <tg-emoji emoji-id=\"5447410659077661506\">🌐</tg-emoji>\n\n"
+                f"<i>Всё ещё остаётся лишь выбрать подходящий</i> <tg-emoji emoji-id=\"5370930189322688800\">🤫</tg-emoji>"
             ),
             parse_mode="HTML"
         ),
@@ -2691,8 +2687,8 @@ async def apply_promo(message: Message, state: FSMContext):
         await hp.save_promo_use(user_id, promo.id)
 
         return await message.answer(
-            f"✅ Промокод <b>{code}</b> активирован!\n"
-            f"💸 При покупке тарифа ваша скидка составит <b>{promo.discount_percent}%</b>",
+            f"<tg-emoji emoji-id=\"5206607081334906820\">✔️</tg-emoji> Промокод <b>{code}</b> активирован!\n"
+            f"<tg-emoji emoji-id=\"5776310664670746359\">💸</tg-emoji> При покупке тарифа ваша скидка составит <b>{promo.discount_percent}%</b>",
             reply_markup=kb.back,
             parse_mode="HTML"
         )
@@ -2708,14 +2704,14 @@ async def apply_promo(message: Message, state: FSMContext):
         await hp.save_promo_use(user_id, promo.id)
 
         return await message.answer(
-            f"✅ Промокод <b>{code}</b> активирован!\n"
-            f"🎁 На баланс добавлено <b>{promo.bonus_days} RP</b>.",
+            f"<tg-emoji emoji-id=\"5206607081334906820\">✔️</tg-emoji> Промокод <b>{code}</b> активирован!\n"
+            f"<tg-emoji emoji-id=\"5775979247814318159\">🛡️</tg-emoji> На баланс добавлено <b>{promo.bonus_days} RP</b>.",
             reply_markup=kb.back,
             parse_mode="HTML"
         )
 
     await message.answer(
-        "❌ Промокод не найден или больше не активен.",
+        "<tg-emoji emoji-id=\"5210952531676504517\">❌</tg-emoji> Промокод не найден или больше не активен.",
         reply_markup=kb.back,
         parse_mode="HTML"
     )
@@ -2752,7 +2748,7 @@ async def rp_enter_fsm(callback: CallbackQuery, state: FSMContext):
 
         await callback.message.edit_caption(
             caption=(
-                "✏️ <b>Введите количество дней для добавления</b>\n\n"
+                "<tg-emoji emoji-id=\"5334673106202010226\">✏️</tg-emoji> <b>Введите количество дней для добавления</b>\n\n"
                 "<blockquote><b>Минимальные значения для добавления:</b>\n"
                 "|+| <b>1 день</b>\n\n"
                 f"Доступно: <b>{balance}</b></blockquote>"
@@ -2768,7 +2764,7 @@ async def rp_enter_fsm(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.edit_caption(
         caption=(
-            "🔄 <b>Модернизация подписки</b>\n\n"
+            "<tg-emoji emoji-id=\"5895592588064328942\">⚙️</tg-emoji> <b>Модернизация подписки</b>\n\n"
             "Выберите, что хотите добавить:"
         ),
         reply_markup=kb.rp_resource_choice_kb(sub_type),
@@ -2811,7 +2807,7 @@ async def rp_choose_resource(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.edit_caption(
         caption=(
-            "✏️ <b>Введите количество для добавления</b>\n\n"
+            "<tg-emoji emoji-id=\"5334673106202010226\">✏️</tg-emoji> <b>Введите количество для добавления</b>\n\n"
             "<blockquote><b>Минимальные значения для добавления:</b>\n\n"
             "|+| <b>2 ГБ</b>\n"
             "|+| <b>1 день</b>\n\n"
@@ -2843,7 +2839,7 @@ async def rp_amount_back(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.edit_caption(
         caption=(
-            "🔄 <b>Модернизация подписки</b>\n\n"
+            "<tg-emoji emoji-id=\"5895592588064328942\">⚙️</tg-emoji> <b>Модернизация подписки</b>\n\n"
             "Выберите, что хотите добавить:"
         ),
         reply_markup=kb.rp_resource_choice_kb(sub_type),
@@ -2877,7 +2873,7 @@ async def rp_choose_amount(message: Message, state: FSMContext):
         await message.delete()
         await bot2.send_message(
             chat_id,
-            "❌ Минимальное количество для добавления — <b>2 ГБ</b>",
+            "<tg-emoji emoji-id=\"5210952531676504517\">❌</tg-emoji> Минимальное количество для добавления — <b>2 ГБ</b>",
             parse_mode="HTML"
         )
         return
@@ -2916,7 +2912,7 @@ async def start_conversion(callback: CallbackQuery, state: FSMContext):
     await callback.answer('Конвертация RP')  
     await state.set_state(ConvertRPStates.choose_resource)
     await callback.message.answer(
-        "🔄 Выберите, что хотите получить:",
+        "<tg-emoji emoji-id=\"5264727218734524899\">🔄</tg-emoji> Выберите, что хотите получить:",
         reply_markup=kb.convert_resource_kb
     )
 
@@ -2934,7 +2930,7 @@ async def back_to_amount_choice(callback: CallbackQuery, state: FSMContext):
     balance = await hp.get_rp_balance(callback.from_user.id)
 
     await callback.message.edit_text(
-        f"🖊 <b>Выберите количество для конвертации:</b>\n"
+        f"<tg-emoji emoji-id=\"5334673106202010226\">✏️</tg-emoji> <b>Выберите количество для конвертации:</b>\n"
         f"<blockquote>Ваш баланс: {balance} RP</blockquote>",
         reply_markup=kb.convert_amount_kb(balance),
         parse_mode='HTML'
@@ -2950,7 +2946,7 @@ async def choose_resource(callback: CallbackQuery, state: FSMContext):
 
     balance = await hp.get_rp_balance(callback.from_user.id)
     await callback.message.edit_text(
-        f"🖊 <b>Выберите количество для конвертации:</b>\n"
+        f"<tg-emoji emoji-id=\"5334673106202010226\">✏️</tg-emoji> <b>Выберите количество для конвертации:</b>\n"
         f"<blockquote>Ваш баланс: {balance} RP</blockquote>",
         reply_markup=kb.convert_amount_kb(balance),
         parse_mode='HTML'
@@ -2984,7 +2980,7 @@ async def choose_amount(callback: CallbackQuery, state: FSMContext):
     if max_rp <= 0:
         await state.clear()
         return await callback.message.edit_text(
-            "❌ Конвертация невозможна.",
+            "<tg-emoji emoji-id=\"5210952531676504517\">❌</tg-emoji> Конвертация невозможна.",
             reply_markup=kb.back1
         )
 
@@ -2993,7 +2989,7 @@ async def choose_amount(callback: CallbackQuery, state: FSMContext):
         rp_amount = min_rp
         if rp_amount > max_rp:
             return await callback.answer(
-                "❌ Недостаточно лимита для минимальной конвертации.",
+                "<tg-emoji emoji-id=\"5210952531676504517\">❌</tg-emoji> Недостаточно лимита для минимальной конвертации.",
                 show_alert=True
             )
 
@@ -3009,9 +3005,9 @@ async def choose_amount(callback: CallbackQuery, state: FSMContext):
         )
 
         msg = await callback.message.edit_text(
-            f"✏️ <b>Введите количество RP для конвертации:</b>\n\n"
+            f"<tg-emoji emoji-id=\"5334673106202010226\">✏️</tg-emoji> <b>Введите количество RP для конвертации:</b>\n\n"
             f"<blockquote>"
-            f"Баланс: <b>{rp_balance} RP</b>\n"
+            f"<tg-emoji emoji-id=\"5775979247814318159\">🛡️</tg-emoji> Баланс: <b>{rp_balance} RP</b>\n"
             f"Доступно по лимиту: <b>{max_rp} RP</b>\n"
             f"Минимум: <b>{min_rp} RP</b>"
             f"</blockquote>",
@@ -3033,7 +3029,7 @@ async def choose_amount(callback: CallbackQuery, state: FSMContext):
 
     if not success:
         return await callback.message.edit_text(
-            "❌ Конвертация невозможна.",
+            "<tg-emoji emoji-id=\"5210952531676504517\">❌</tg-emoji> Конвертация невозможна.",
             reply_markup=kb.back1
         )
 
@@ -3041,7 +3037,7 @@ async def choose_amount(callback: CallbackQuery, state: FSMContext):
     resource = "дней" if target == "days" else "ГБ"
 
     await callback.message.edit_text(
-        "✨ <b>Конвертация завершена</b>\n\n"
+        "<tg-emoji emoji-id=\"5472164874886846699\">✨</tg-emoji> <b>Конвертация завершена</b>\n\n"
         f"<blockquote>"
         f"🔸 Потрачено: <b>{rp_amount} RP</b>\n"
         f"🔹 Получено: <b>{converted} {resource}</b>"
@@ -3092,7 +3088,7 @@ async def enter_custom_amount(message: Message, state: FSMContext):
         chat_id=message.chat.id,
         message_id=prompt_msg_id,
         text=(
-            "✨ <b>Конвертация завершена</b>\n\n"
+            "<tg-emoji emoji-id=\"5472164874886846699\">✨</tg-emoji> <b>Конвертация завершена</b>\n\n"
             f"<blockquote>"
             f"🔸 Потрачено: <b>{rp_amount} RP</b>\n"
             f"🔹 Получено: <b>{converted} {resource}</b>"

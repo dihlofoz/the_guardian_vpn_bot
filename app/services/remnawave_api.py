@@ -534,44 +534,34 @@ async def update_subscription_hwid_limit(
 
 # Возвращает информацию о пользователе Remnawave по Telegram ID или None
 async def get_user_by_telegram_id(telegram_id: int) -> dict | None:
-    users = []
     page = 1
+    page_size = 100
+    max_pages = 10
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        while True:
+    async with httpx.AsyncClient(timeout=10) as client:
+        while page <= max_pages:
             r = await client.get(
                 REMNA_API_URL,
-                params={"page": page, "size": 100},
+                params={"page": page, "size": page_size},
                 headers={"Authorization": f"Bearer {REMNAWAVE_TOKEN}"}
             )
 
             if r.status_code != 200:
-                break
+                return None
 
             resp = r.json().get("response", {})
             page_users = resp.get("users", [])
 
             if not page_users:
-                break
+                return None
 
-            # фильтруем ТОЛЬКО нужного пользователя
-            users.extend(
-                u for u in page_users
-                if u.get("telegramId") == telegram_id
-            )
-
-            if len(page_users) < 100:
-                break
+            for u in page_users:
+                if str(u.get("telegramId")) == str(telegram_id):
+                    return {"users": [u]}
 
             page += 1
 
-    if not users:
-        return None
-
-    # ⚠️ ВАЖНО: возвращаем структуру, которую ожидает профиль
-    return {
-        "users": users
-    }
+    return None
 
 async def get_hwid_devices(user_uuid: str) -> dict:
     url = f"{REMNAWAVE_BASE_URL}/hwid/devices/{user_uuid}"

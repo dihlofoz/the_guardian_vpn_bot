@@ -63,7 +63,6 @@ class TrialSubscription(Base):
         back_populates="trial_subscriptions"
     )
 
-
 class Subscriptions(Base):
     __tablename__ = "subscriptions"
 
@@ -161,3 +160,4 @@ class NotificationMeta(Base):
 
     id = Column(Integer, primary_key=True)
     last_reset_at = Column(DateTime, nullable=False)
+    last_referral_notify = Column(DateTime(timezone=True), nullable=True)
