@@ -531,37 +531,36 @@ async def update_subscription_hwid_limit(
 
     return True
 
-
 # Возвращает информацию о пользователе Remnawave по Telegram ID или None
 async def get_user_by_telegram_id(telegram_id: int) -> dict | None:
-    page = 1
-    page_size = 100
-    max_pages = 10
+    url = f"{REMNA_API_URL}/by-telegram-id/{telegram_id}"
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        while page <= max_pages:
-            r = await client.get(
-                REMNA_API_URL,
-                params={"page": page, "size": page_size},
-                headers={"Authorization": f"Bearer {REMNAWAVE_TOKEN}"}
-            )
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(
+            url,
+            headers={
+                "Authorization": f"Bearer {REMNAWAVE_TOKEN}"
+            }
+        )
 
-            if r.status_code != 200:
-                return None
+    if r.status_code == 404:
+        return None
 
-            resp = r.json().get("response", {})
-            page_users = resp.get("users", [])
+    if r.status_code != 200:
+        print("Remnawave error:", r.status_code, r.text)
+        return None
 
-            if not page_users:
-                return None
+    data = r.json()
 
-            for u in page_users:
-                if str(u.get("telegramId")) == str(telegram_id):
-                    return {"users": [u]}
+    if not isinstance(data, dict):
+        return None
 
-            page += 1
+    subscriptions = data.get("response")
 
-    return None
+    if not isinstance(subscriptions, list) or not subscriptions:
+        return None
+
+    return {"users": subscriptions}
 
 async def get_hwid_devices(user_uuid: str) -> dict:
     url = f"{REMNAWAVE_BASE_URL}/hwid/devices/{user_uuid}"
