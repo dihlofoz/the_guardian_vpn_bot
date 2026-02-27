@@ -2,21 +2,15 @@ import asyncio
 from aiogram import Bot, Dispatcher
 from config import TOKEN
 from app.handlers import router
-from app.tasks import cleanup_trial as cl
-from app.tasks import cleanup_platno as cl_p
-from app.tasks import expired_subscription_notifier as e_s
-from app.tasks import trial_reminder as t_r_t
 from logger_config import setup_logger
+from app.db.dealer import engine, Base
+from app.scheduler import setup_scheduler, shutdown_scheduler
 
 logger = setup_logger("bot.log")
-
-# ⚙️ Импортируем SQLAlchemy engine и Base
-from app.db.dealer import engine, Base
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# 🔹 Создание таблиц
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -25,14 +19,16 @@ async def init_db():
 async def main():
     await init_db()
     dp.include_router(router)
-    asyncio.create_task(cl.cleanup_expired_trials())
-    asyncio.create_task(cl_p.cleanup_expired_subscriptions())
-    asyncio.create_task(t_r_t.trial_reminder_task())
-    asyncio.create_task(e_s.expired_subscriptions_notifier1())
-    await dp.start_polling(bot)
+    setup_scheduler(bot)
+
+    try:
+        await dp.start_polling(bot)
+    finally:
+        shutdown_scheduler(bot)
+        await bot.session.close()
 
 if __name__ == '__main__':
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print('🚪 Exit')
+        print("🚪 Exit")
